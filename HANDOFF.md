@@ -11,6 +11,7 @@ A minimal substitute for the retired GitHub Classroom, running on the university
 - **GitHub API**: a **GitHub App** installed on the org. It provides installation tokens for API calls, and the same app handles the OAuth login.
 - **Storage**: **MySQL**. The server has no pdo_sqlite. DB credentials are entered on the admin page and written to `config/settings.php`.
 - **Admins**: SSO usernames listed in `config/admins.php`, which is edited by hand.
+- **Orgs**: one GitHub org per student group, chosen per assignment from the orgs the single GitHub App is installed on (app set to "Any account"). The template can be any public template, or a private one in that org.
 - **Teams**: the creator makes the team and repo, and others join until `max_team_size`. The repo name is fixed as `<slug>-<creator github login>`, never renamed on join, with `-2`, `-3`… added if the name is taken.
 - **No dependencies**: no Composer.
 

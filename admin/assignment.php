@@ -12,12 +12,15 @@ if ($id && !$a) {
     http_response_code(404);
     exit('No such assignment.');
 }
+// The org can't change once repos exist in it.
+$orgLocked = $a && q('SELECT 1 FROM teams WHERE assignment_id = ? LIMIT 1', [$a['id']])->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
     $action = $_POST['action'] ?? '';
     if ($action === 'save') {
         $f = [
+            'org' => $orgLocked ? $a['org'] : trim((string) ($_POST['org'] ?? '')),
             'title' => trim((string) $_POST['title']),
             'slug' => strtolower(trim((string) $_POST['slug'])),
             'template' => trim((string) $_POST['template']),
@@ -31,31 +34,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!preg_match('/^[a-z0-9][a-z0-9-]{0,39}$/', $f['slug'])) {
                 throw new UserError('Slug must be lowercase letters, digits and dashes (max 40).');
             }
+            if (!$orgLocked && !in_array($f['org'], gh_installed_orgs(), true)) {
+                throw new UserError('Choose an organization the GitHub App is installed on.');
+            }
             // Accept "owner/repo" or a github.com URL.
             if (!preg_match('~^(?:https://github\.com/)?([\w.-]+)/([\w.-]+?)(?:\.git)?/?$~', $f['template'], $m)) {
                 throw new UserError('Template must be "owner/repo" or a GitHub URL.');
             }
-            [$s, $tpl] = gh('GET', '/repos/' . rawurlencode($m[1]) . '/' . rawurlencode($m[2]));
+            [$s, $tpl] = gh($f['org'], 'GET', '/repos/' . rawurlencode($m[1]) . '/' . rawurlencode($m[2]));
             if ($s !== 200) {
-                throw new UserError("Template repo {$m[1]}/{$m[2]} is not accessible to the GitHub App (HTTP $s).");
+                throw new UserError("Template repo {$m[1]}/{$m[2]} is not accessible to the GitHub App (HTTP $s). "
+                    . "It must be public, or private in {$f['org']}.");
             }
             if (empty($tpl['is_template'])) {
                 throw new UserError("{$m[1]}/{$m[2]} is not marked as a template repository (repo Settings → Template repository).");
             }
-            $params = [$f['title'], $f['slug'], $tpl['owner']['login'], $tpl['name'], $f['max_team_size'], $f['is_open']];
+            $params = [$f['org'], $f['title'], $f['slug'], $tpl['owner']['login'], $tpl['name'], $f['max_team_size'], $f['is_open']];
             try {
                 if ($a) {
-                    q('UPDATE assignments SET title = ?, slug = ?, template_owner = ?, template_repo = ?, max_team_size = ?, is_open = ?
+                    q('UPDATE assignments SET org = ?, title = ?, slug = ?, template_owner = ?, template_repo = ?, max_team_size = ?, is_open = ?
                        WHERE id = ?', [...$params, $a['id']]);
                 } else {
-                    q('INSERT INTO assignments (title, slug, template_owner, template_repo, max_team_size, is_open, invite_code)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)', [...$params, bin2hex(random_bytes(8))]);
+                    q('INSERT INTO assignments (org, title, slug, template_owner, template_repo, max_team_size, is_open, invite_code)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [...$params, bin2hex(random_bytes(8))]);
                     $id = (int) db()->lastInsertId();
                 }
             } catch (PDOException $e) {
-                throw is_duplicate_key($e) ? new UserError('Another assignment already uses that slug.') : $e;
+                throw is_duplicate_key($e) ? new UserError("Another assignment in {$f['org']} already uses that slug.") : $e;
             }
             flash('ok', 'Saved.');
+            if (!$a || $a['org'] !== $f['org']) {
+                check_org_base_permission($f['org']);
+            }
             redirect('admin/assignment.php?id=' . $id);
         } catch (UserError $e) {
             flash('err', $e->getMessage());
@@ -70,15 +80,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $f = $_SESSION['form'] ?? ($a ? [
+    'org' => $a['org'],
     'title' => $a['title'],
     'slug' => $a['slug'],
     'template' => "{$a['template_owner']}/{$a['template_repo']}",
     'max_team_size' => $a['max_team_size'],
     'is_open' => $a['is_open'],
-] : ['title' => '', 'slug' => '', 'template' => '', 'max_team_size' => 1, 'is_open' => 1]);
+] : ['org' => '', 'title' => '', 'slug' => '', 'template' => '', 'max_team_size' => 1, 'is_open' => 1]);
 unset($_SESSION['form']);
 
+if ($orgLocked) {
+    $orgField = '<p><code>' . h($f['org']) . '</code> <span class="muted">(fixed: teams already exist)</span></p>';
+} else {
+    try {
+        $orgs = gh_installed_orgs();
+    } catch (RuntimeException $e) {
+        $orgs = [];
+        flash('err', $e->getMessage());
+    }
+    if ($f['org'] !== '' && !in_array($f['org'], $orgs, true)) {
+        $orgs[] = $f['org'];  // keep the saved value visible even if the app was uninstalled
+    }
+    $orgField = '<select name="org" required><option value="">Choose…</option>';
+    foreach ($orgs as $o) {
+        $orgField .= '<option' . ($o === $f['org'] ? ' selected' : '') . '>' . h($o) . '</option>';
+    }
+    $orgField .= '</select><p class="muted">Orgs the GitHub App is installed on. Install it on a new group\'s org to add it here.</p>';
+}
+
 page_start($a ? $a['title'] : 'New assignment');
+echo pending_migrations_notice();
 echo '<p><a href="' . h(url('admin/')) . '">← Assignments</a></p>';
 if ($a) {
     echo '<p>Join link for students: <code>' . h(url('join.php?code=' . $a['invite_code'])) . '</code></p>';
@@ -86,11 +117,13 @@ if ($a) {
 
 echo '<fieldset><legend>' . ($a ? 'Edit' : 'Create') . '</legend><form method="post">' . csrf_field()
     . '<input type="hidden" name="action" value="save">'
+    . '<label>GitHub organization</label>' . $orgField
     . '<label>Title</label><input type="text" name="title" value="' . h($f['title']) . '" required>'
     . '<label>Slug (repo name prefix)</label><input type="text" name="slug" value="' . h($f['slug']) . '" required pattern="[a-z0-9][a-z0-9-]{0,39}">'
     . '<p class="muted">Repos are named <code>&lt;slug&gt;-&lt;github-login&gt;</code> of the student who creates the team. '
     . 'Changing the slug only affects new repos.</p>'
-    . '<label>Template repository</label><input type="text" name="template" value="' . h($f['template']) . '" placeholder="my-org/assignment1-template" required>'
+    . '<label>Template repository</label><input type="text" name="template" value="' . h($f['template']) . '" placeholder="owner/assignment1-template" required>'
+    . '<p class="muted">Any template repository the app can read: public, or private in the chosen org.</p>'
     . '<label>Max team size</label><input type="number" name="max_team_size" min="1" max="50" value="' . (int) $f['max_team_size'] . '">'
     . '<p class="muted">1 = individual assignment.</p>'
     . '<label><input type="checkbox" name="is_open"' . ($f['is_open'] ? ' checked' : '') . '> Open for new teams and joins</label>'

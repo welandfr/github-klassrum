@@ -57,30 +57,76 @@ function gh_app_jwt(): string
     return $data . '.' . b64url($sig);
 }
 
-/** Installation access token for the org, cached in settings until shortly before expiry. */
-function gh_token(): string
+/** Installation access token for an org, cached in settings until shortly before expiry. */
+function gh_token(string $org): string
 {
-    $token = setting('gh_token');
-    if ($token !== null && (int) setting('gh_token_expires') > time() + 300) {
+    $token = setting("gh_token:$org");
+    if ($token !== null && (int) setting("gh_token_expires:$org") > time() + 300) {
         return $token;
     }
     $jwt = gh_app_jwt();
-    $org = rawurlencode((string) setting('gh_org'));
-    [$s, $inst] = gh_api('GET', "/orgs/$org/installation", null, $jwt);
+    [$s, $inst] = gh_api('GET', '/orgs/' . rawurlencode($org) . '/installation', null, $jwt);
     if ($s !== 200) {
-        throw gh_error("GitHub App is not installed on org '" . setting('gh_org') . "'", $s, $inst);
+        throw gh_error("GitHub App is not installed on org '$org'", $s, $inst);
     }
     [$s, $res] = gh_api('POST', "/app/installations/{$inst['id']}/access_tokens", null, $jwt);
     if ($s !== 201) {
         throw gh_error('Could not get an installation token', $s, $res);
     }
-    set_setting('gh_token', $res['token']);
-    set_setting('gh_token_expires', (string) strtotime($res['expires_at']));
+    set_setting("gh_token:$org", $res['token']);
+    set_setting("gh_token_expires:$org", (string) strtotime($res['expires_at']));
     return $res['token'];
 }
 
-/** Calls the API as the app installation on the classroom org. */
-function gh(string $method, string $path, ?array $body = null): array
+/** Drops all cached installation tokens, e.g. after the app credentials change. */
+function gh_forget_tokens(): void
 {
-    return gh_api($method, $path, $body, gh_token());
+    q("DELETE FROM settings WHERE k LIKE 'gh\\_token%'");
+    $cache = &settings_cache();
+    $cache = array_filter($cache, fn($k) => !str_starts_with((string) $k, 'gh_token'), ARRAY_FILTER_USE_KEY);
+}
+
+/** @return string[] logins of the orgs the app is installed on, sorted */
+function gh_installed_orgs(): array
+{
+    $orgs = [];
+    $jwt = gh_app_jwt();
+    for ($page = 1; ; $page++) {
+        [$s, $list] = gh_api('GET', "/app/installations?per_page=100&page=$page", null, $jwt);
+        if ($s !== 200) {
+            throw gh_error('Could not list the GitHub App installations', $s, $list);
+        }
+        foreach ($list as $inst) {
+            if ($inst['account']['type'] === 'Organization') {
+                $orgs[] = $inst['account']['login'];
+            }
+        }
+        if (count($list) < 100) {
+            break;
+        }
+    }
+    natcasesort($orgs);
+    return array_values($orgs);
+}
+
+/**
+ * Flashes a warning unless the org's base permission is "No permission". GitHub only reveals
+ * it when the app has the Organization → Administration (read) permission.
+ */
+function check_org_base_permission(string $org): void
+{
+    [$s, $info] = gh($org, 'GET', '/orgs/' . rawurlencode($org));
+    $perm = $s === 200 ? $info['default_repository_permission'] ?? null : null;
+    if ($perm === null) {
+        flash('muted', "Could not check the base permission of $org. Make sure it is 'No permission' "
+            . "(org Settings → Member privileges), or give the app Organization → Administration: Read-only.");
+    } elseif ($perm !== 'none') {
+        flash('err', "Warning: the base permission of $org is '$perm'. Set it to 'No permission' so students can't see each other's repos.");
+    }
+}
+
+/** Calls the API as the app installation on the given org. */
+function gh(string $org, string $method, string $path, ?array $body = null): array
+{
+    return gh_api($method, $path, $body, gh_token($org));
 }

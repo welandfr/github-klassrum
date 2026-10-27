@@ -19,8 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'pass' => $_POST['pass'] !== '' ? (string) $_POST['pass'] : ($db['pass'] ?? ''),
         ];
         try {
-            create_schema(db_connect($c));
-        } catch (PDOException $e) {
+            $applied = migrate(db_connect($c));
+        } catch (RuntimeException $e) {
             flash('err', 'Could not connect or create tables: ' . $e->getMessage());
             redirect('admin/settings.php');
         }
@@ -33,11 +33,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (function_exists('opcache_invalidate')) {
                 opcache_invalidate($file, true);
             }
-            flash('ok', 'Database connected and tables created.');
+            flash('ok', 'Database connected. Migrations applied: ' . ($applied ? implode(', ', $applied) : 'none pending') . '.');
             redirect('admin/settings.php');
         }
+    } elseif ($action === 'migrate' && $db) {
+        try {
+            $applied = migrate(db());
+            flash('ok', 'Migrations applied: ' . ($applied ? implode(', ', $applied) : 'none pending') . '.');
+        } catch (RuntimeException $e) {
+            flash('err', $e->getMessage());
+        }
+        redirect('admin/settings.php');
+    } elseif ($action === 'reset' && $db && IS_DEV_SERVER) {
+        try {
+            reset_database(db());
+            flash('ok', 'Database reset: all tables dropped and migrations re-run.');
+        } catch (RuntimeException $e) {
+            flash('err', $e->getMessage());
+        }
+        redirect('admin/settings.php');
     } elseif ($action === 'github' && $db) {
-        foreach (['gh_org', 'gh_app_id', 'gh_client_id'] as $k) {
+        foreach (['gh_app_id', 'gh_client_id'] as $k) {
             set_setting($k, trim((string) $_POST[$k]));
         }
         foreach (['gh_client_secret', 'gh_private_key'] as $k) {
@@ -45,20 +61,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_setting($k, trim((string) $_POST[$k]));
             }
         }
-        set_setting('gh_token_expires', '0');  // force a fresh token with the new settings
+        gh_forget_tokens();  // force fresh tokens with the new settings
         flash('ok', 'GitHub settings saved.');
         redirect('admin/settings.php');
     } elseif ($action === 'test' && $db) {
         try {
-            $org = (string) setting('gh_org');
-            [$s, $info] = gh('GET', '/orgs/' . rawurlencode($org));
-            if ($s !== 200) {
-                throw gh_error("Could not read org '$org'", $s, $info);
-            }
-            flash('ok', "OK: the app is installed on {$info['login']} and has an access token.");
-            $perm = $info['default_repository_permission'] ?? null;
-            if ($perm !== null && $perm !== 'none') {
-                flash('err', "Warning: the org's base permission is '$perm'. Set it to 'No permission' so students can't see each other's repos.");
+            $orgs = gh_installed_orgs();
+            if ($orgs) {
+                flash('ok', 'OK: the app is installed on ' . implode(', ', $orgs) . '.');
+            } else {
+                flash('err', 'The app credentials work, but the app is not installed on any organization yet.');
             }
         } catch (RuntimeException $e) {
             flash('err', 'GitHub test failed: ' . $e->getMessage());
@@ -92,11 +104,32 @@ if (!$db) {
     exit;
 }
 
+$applied = db()->query('SELECT name, applied_at FROM schema_migrations ORDER BY name')->fetchAll(PDO::FETCH_KEY_PAIR);
+$pending = pending_migrations(db());
+echo '<fieldset><legend>Database schema</legend><table><tr><th>Migration</th><th>Applied</th></tr>';
+foreach (migration_files() as $name => $_) {
+    echo '<tr><td><code>' . h($name) . '</code></td><td>'
+        . (isset($applied[$name]) ? h($applied[$name]) : '<span class="err">pending</span>') . '</td></tr>';
+}
+echo '</table><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="migrate">'
+    . '<button' . ($pending ? '' : ' disabled') . '>Run pending migrations</button></form>';
+if (IS_DEV_SERVER) {
+    echo '<form method="post" onsubmit="return confirm(\'Drop ALL tables in this database, including GitHub settings, and re-run all migrations?\')">'
+        . csrf_field() . '<input type="hidden" name="action" value="reset">'
+        . '<p><button style="background:var(--err)">Reset database (dev only)</button></p></form>';
+}
+echo '</fieldset>';
+
+if ($pending) {
+    echo '<p class="err">Run the pending migrations before configuring GitHub.</p>';
+    page_end();
+    exit;
+}
+
 $secretSet = fn(string $k) => setting($k) !== null && setting($k) !== '' ? '(saved; leave empty to keep)' : '';
 echo '<fieldset><legend>2. GitHub App</legend>'
     . '<p class="muted">Callback URL to enter in the GitHub App: <code>' . h(url('oauth.php')) . '</code></p>'
     . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="github">'
-    . '<label>Organization (login)</label><input type="text" name="gh_org" value="' . h(setting('gh_org')) . '" required>'
     . '<label>App ID</label><input type="text" name="gh_app_id" value="' . h(setting('gh_app_id')) . '" required>'
     . '<label>Client ID</label><input type="text" name="gh_client_id" value="' . h(setting('gh_client_id')) . '" required>'
     . '<label>Client secret</label><input type="password" name="gh_client_secret" placeholder="' . $secretSet('gh_client_secret') . '">'
@@ -104,5 +137,6 @@ echo '<fieldset><legend>2. GitHub App</legend>'
     . $secretSet('gh_private_key') . '"></textarea>'
     . '<p><button>Save</button></p></form>'
     . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="test">'
-    . '<button>Test GitHub connection</button></form></fieldset>';
+    . '<button>Test GitHub connection</button></form>'
+    . '<p class="muted">Install the app on each group\'s organization; each assignment picks one of them.</p></fieldset>';
 page_end();

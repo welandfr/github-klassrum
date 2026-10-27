@@ -39,7 +39,7 @@ function create_team(array $a, array $user, string $teamName): void
     if (strlen($teamName) > 100) {
         throw new UserError('Team name is too long.');
     }
-    $org = (string) setting('gh_org');
+    $org = $a['org'];
     $base = repo_name_for($a['slug'], $user['github_login']);
 
     $pdo = db();
@@ -52,8 +52,8 @@ function create_team(array $a, array $user, string $teamName): void
             throw new UserError('A team with that name already exists.');
         }
         try {
-            q('INSERT INTO teams (assignment_id, name, repo_name, created_by) VALUES (?, ?, ?, ?)',
-                [$a['id'], $teamName, $base . '-' . bin2hex(random_bytes(4)), $user['sso_user']]);
+            q('INSERT INTO teams (assignment_id, name, org, repo_name, created_by) VALUES (?, ?, ?, ?, ?)',
+                [$a['id'], $teamName, $org, $base . '-' . bin2hex(random_bytes(4)), $user['sso_user']]);
             $teamId = (int) $pdo->lastInsertId();
             q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
                 [$teamId, $a['id'], $user['sso_user']]);
@@ -68,10 +68,10 @@ function create_team(array $a, array $user, string $teamName): void
         $repo = null;
         for ($i = 1; $i <= 20 && $repo === null; $i++) {
             $name = $i === 1 ? $base : "$base-$i";
-            if (q('SELECT 1 FROM teams WHERE repo_name = ?', [$name])->fetch()) {
+            if (q('SELECT 1 FROM teams WHERE org = ? AND repo_name = ?', [$org, $name])->fetch()) {
                 continue;
             }
-            [$s, $body] = gh('POST', '/repos/' . rawurlencode($a['template_owner']) . '/' . rawurlencode($a['template_repo']) . '/generate', [
+            [$s, $body] = gh($org, 'POST', '/repos/' . rawurlencode($a['template_owner']) . '/' . rawurlencode($a['template_repo']) . '/generate', [
                 'owner' => $org,
                 'name' => $name,
                 'private' => true,
@@ -131,15 +131,15 @@ function join_team(array $a, array $user, int $teamId): void
  */
 function invite_member(int $teamId, string $sso): bool
 {
-    $row = q('SELECT t.repo_name, u.github_login FROM teams t, users u WHERE t.id = ? AND u.sso_user = ?',
+    $row = q('SELECT t.org, t.repo_name, u.github_login FROM teams t, users u WHERE t.id = ? AND u.sso_user = ?',
         [$teamId, $sso])->fetch();
     $error = 'Student has no linked GitHub account';
     if ($row) {
-        $path = '/repos/' . rawurlencode((string) setting('gh_org')) . '/' . rawurlencode($row['repo_name'])
+        $path = '/repos/' . rawurlencode($row['org']) . '/' . rawurlencode($row['repo_name'])
             . '/collaborators/' . rawurlencode($row['github_login']);
         // A freshly generated repo may not be ready yet (404), so retry a few times.
         for ($i = 0; $i < 4; $i++) {
-            [$s, $body] = gh('PUT', $path, ['permission' => 'push']);
+            [$s, $body] = gh($row['org'], 'PUT', $path, ['permission' => 'push']);
             if ($s === 201 || $s === 204) {
                 $error = null;
                 break;

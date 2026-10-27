@@ -28,6 +28,15 @@ function db(): PDO
     if ($pdo === null) {
         $c = db_config() ?? throw new RuntimeException('Database is not configured.');
         $pdo = db_connect($c);
+        if (IS_DEV_SERVER) {
+            // New migration files take effect on reload. A failure is only flashed, so the
+            // settings page (with its reset button) stays usable.
+            try {
+                migrate($pdo);
+            } catch (RuntimeException $e) {
+                flash('err', $e->getMessage());
+            }
+        }
     }
     return $pdo;
 }
@@ -65,50 +74,70 @@ function set_setting(string $k, string $v): void
     $cache[$k] = $v;
 }
 
-function create_schema(PDO $pdo): void
+// ---- migrations ----
+// Files in migrations/ named NNN_description.sql, applied once each in name order and
+// recorded in schema_migrations. Statements are separated by a ";" at the end of a line.
+// MySQL commits DDL immediately, so a migration that fails halfway is left partly applied.
+
+/** @return array<string,string> migration name => file path, in apply order */
+function migration_files(): array
 {
-    $opts = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4';
-    $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
-        k VARCHAR(64) PRIMARY KEY,
-        v TEXT NOT NULL
-    ) $opts");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        sso_user VARCHAR(191) PRIMARY KEY,
-        github_id BIGINT UNSIGNED NOT NULL UNIQUE,
-        github_login VARCHAR(100) NOT NULL,
-        linked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) $opts");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS assignments (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        slug VARCHAR(40) NOT NULL UNIQUE,
-        title VARCHAR(200) NOT NULL,
-        template_owner VARCHAR(100) NOT NULL,
-        template_repo VARCHAR(100) NOT NULL,
-        max_team_size TINYINT UNSIGNED NOT NULL DEFAULT 1,
-        invite_code CHAR(16) NOT NULL UNIQUE,
-        is_open TINYINT(1) NOT NULL DEFAULT 1,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) $opts");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS teams (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        assignment_id INT UNSIGNED NOT NULL,
-        name VARCHAR(100) NOT NULL,
-        repo_name VARCHAR(100) NOT NULL UNIQUE,
-        repo_url VARCHAR(255) NULL,
-        created_by VARCHAR(191) NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY team_name (assignment_id, name),
-        FOREIGN KEY (assignment_id) REFERENCES assignments(id)
-    ) $opts");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS team_members (
-        team_id INT UNSIGNED NOT NULL,
-        assignment_id INT UNSIGNED NOT NULL,
-        sso_user VARCHAR(191) NOT NULL,
-        invite_status VARCHAR(20) NOT NULL DEFAULT 'pending',
-        invite_error VARCHAR(255) NULL,
-        joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (team_id, sso_user),
-        UNIQUE KEY one_team_per_assignment (assignment_id, sso_user),
-        FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
-    ) $opts");
+    $files = [];
+    foreach (glob(APP_DIR . '/migrations/*.sql') as $f) {
+        $files[basename($f, '.sql')] = $f;
+    }
+    ksort($files, SORT_STRING);
+    return $files;
+}
+
+/** @return string[] names of migrations not yet applied */
+function pending_migrations(PDO $pdo): array
+{
+    $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (
+        name VARCHAR(191) PRIMARY KEY,
+        applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $applied = $pdo->query('SELECT name FROM schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
+    return array_values(array_diff(array_keys(migration_files()), $applied));
+}
+
+/** Applies pending migrations; returns the names applied. */
+function migrate(PDO $pdo): array
+{
+    $pending = pending_migrations($pdo);
+    $files = migration_files();
+    foreach ($pending as $name) {
+        foreach (preg_split('/;\s*$/m', file_get_contents($files[$name])) as $sql) {
+            // Skip the empty tail and comment-only chunks.
+            if (trim(preg_replace('/^\s*--.*$/m', '', $sql)) === '') {
+                continue;
+            }
+            try {
+                $pdo->exec($sql);
+            } catch (PDOException $e) {
+                throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
+            }
+        }
+        $pdo->prepare('INSERT INTO schema_migrations (name) VALUES (?)')->execute([$name]);
+    }
+    return $pending;
+}
+
+/** Drops every table in the database, then re-runs all migrations. For the dev server only. */
+function reset_database(PDO $pdo): array
+{
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+    foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $t) {
+        $pdo->exec('DROP TABLE `' . str_replace('`', '``', $t) . '`');
+    }
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    return migrate($pdo);
+}
+
+/** Banner for admin pages when the database schema is behind the migration files. */
+function pending_migrations_notice(): string
+{
+    $n = count(pending_migrations(db()));
+    return $n ? '<p class="err">' . $n . ' database migration(s) pending. '
+        . '<a href="' . h(url('admin/settings.php')) . '">Run them on the settings page.</a></p>' : '';
 }

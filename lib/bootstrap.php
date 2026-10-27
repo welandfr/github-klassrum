@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 define('APP_DIR', dirname(__DIR__));
+// PHP's built-in server (local dev, see dev/router.php) runs without TLS.
+define('IS_DEV_SERVER', PHP_SAPI === 'cli-server');
 // Prefer a config dir outside the web root (~/classroom-config) when it exists.
 define('CONFIG_DIR', is_dir(dirname(APP_DIR, 2) . '/classroom-config')
     ? dirname(APP_DIR, 2) . '/classroom-config'
@@ -47,7 +49,7 @@ set_exception_handler(function (Throwable $e): void {
 session_name('classroom');
 session_set_cookie_params([
     'path' => base_path() . '/',
-    'secure' => true,
+    'secure' => !IS_DEV_SERVER,
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
@@ -98,7 +100,7 @@ function base_path(): string
 
 function url(string $path = ''): string
 {
-    return 'https://' . $_SERVER['HTTP_HOST'] . base_path() . '/' . ltrim($path, '/');
+    return (IS_DEV_SERVER ? 'http://' : 'https://') . $_SERVER['HTTP_HOST'] . base_path() . '/' . ltrim($path, '/');
 }
 
 function redirect(string $path): never

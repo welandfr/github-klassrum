@@ -23,6 +23,7 @@ button{cursor:pointer;background:var(--accent);color:#fff;border:0}
 button:disabled{opacity:.5;cursor:default}
 label{display:block;margin:10px 0 4px;font-weight:600}
 fieldset{border:1px solid var(--line);border-radius:8px;margin:16px 0;padding:12px 16px}
+summary{cursor:pointer;font-weight:600;margin:4px 0 8px}
 .ok{color:var(--ok)}.err{color:var(--err)}.muted{color:var(--muted)}
 code,pre{background:rgba(127,127,127,.15);padding:2px 4px;border-radius:4px;overflow-x:auto}
 pre{padding:8px}

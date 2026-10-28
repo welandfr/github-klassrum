@@ -107,8 +107,28 @@ if ($pending) {
 }
 
 $secretSet = fn(string $k) => setting($k) !== null && setting($k) !== '' ? '(saved; leave empty to keep)' : '';
+$code = fn(string $s) => '<code>' . h($s) . '</code>';
 echo '<fieldset><legend>2. GitHub App</legend>'
-    . '<p class="muted">Callback URL to enter in the GitHub App: <code>' . h(url('oauth.php')) . '</code></p>'
+    // Expanded until the app is configured.
+    . '<details' . (setting('gh_client_id') ? '' : ' open') . '><summary>Setup instructions for GitHub</summary>'
+    . '<p><b>Create the app</b> (once; it serves all group orgs). In one of the orgs or your own account: '
+    . '<i>Settings → Developer settings → GitHub Apps → New GitHub App</i>.</p><ul>'
+    . '<li><b>Homepage URL:</b> ' . $code(url()) . '</li>'
+    . '<li><b>Callback URL:</b> ' . $code(url('oauth.php')) . '</li>'
+    . '<li><b>Webhook:</b> uncheck <i>Active</i>.</li>'
+    . '<li><b>Repository permissions:</b> Administration: Read and write · Contents: Read-only · Metadata: Read-only.</li>'
+    . '<li><b>Organization permissions</b> (optional): Administration: Read-only, so assignment saves can check the org\'s base permission.</li>'
+    . '<li><b>Where can this app be installed:</b> Any account. It only acts on orgs where it is installed.</li></ul>'
+    . '<p>After creating it, copy the <b>App ID</b> and <b>Client ID</b> into the form below, '
+    . 'and use <i>Generate a new client secret</i> and <i>Generate a private key</i> for the other two fields.</p>'
+    . '<p><b>Install the app</b> on each group\'s org (<i>Install App</i> in the app settings), with <i>All repositories</i>. '
+    . 'Installed orgs appear in the assignment form; <b>Test GitHub connection</b> lists them.</p>'
+    . '<p><b>In each group org</b>, under <i>Settings → Member privileges</i>:</p><ul>'
+    . '<li><b>Base permissions:</b> No permission, so members can\'t see every student repo.</li>'
+    . '<li><b>Repository creation:</b> disabled for members.</li>'
+    . '<li><b>Repository invitations:</b> must allow inviting outside collaborators (students are invited that way).</li>'
+    . '<li>Make teachers org <b>owners</b>; that gives them access to all repos.</li></ul>'
+    . '</details>'
     . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="github">'
     . '<label>App ID</label><input type="text" name="gh_app_id" value="' . h(setting('gh_app_id')) . '" required>'
     . '<label>Client ID</label><input type="text" name="gh_client_id" value="' . h(setting('gh_client_id')) . '" required>'
@@ -117,6 +137,5 @@ echo '<fieldset><legend>2. GitHub App</legend>'
     . $secretSet('gh_private_key') . '"></textarea>'
     . '<p><button>Save</button></p></form>'
     . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="test">'
-    . '<button>Test GitHub connection</button></form>'
-    . '<p class="muted">Install the app on each group\'s organization; each assignment picks one of them.</p></fieldset>';
+    . '<button>Test GitHub connection</button></form></fieldset>';
 page_end();

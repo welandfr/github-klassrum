@@ -49,7 +49,7 @@ function gh_app_jwt(): string
 {
     $now = time();
     $data = b64url(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])) . '.'
-        . b64url(json_encode(['iat' => $now - 60, 'exp' => $now + 540, 'iss' => setting('gh_app_id')]));
+        . b64url(json_encode(['iat' => $now - 60, 'exp' => $now + 540, 'iss' => setting('gh_client_id')]));
     $key = openssl_pkey_get_private((string) setting('gh_private_key'));
     if ($key === false || !openssl_sign($data, $sig, $key, OPENSSL_ALGO_SHA256)) {
         throw new RuntimeException('GitHub App private key is missing or invalid.');

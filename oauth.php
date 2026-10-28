@@ -6,6 +6,14 @@ require __DIR__ . '/lib/bootstrap.php';
 $sso = sso_user();
 require_configured();
 
+// The student cancelled on GitHub (error=access_denied): go back instead of asking again.
+if (isset($_GET['error'])) {
+    $return = $_SESSION['oauth_return'] ?? 'index.php';
+    unset($_SESSION['oauth_state'], $_SESSION['oauth_return']);
+    flash('err', 'GitHub authorization was cancelled. Connect your GitHub account to continue.');
+    redirect($return);
+}
+
 if (!isset($_GET['code'])) {
     $return = $_GET['return'] ?? 'index.php';
     if (!preg_match('/^(index|join)\.php(\?code=[a-f0-9]{16})?$/', $return)) {

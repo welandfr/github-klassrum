@@ -42,6 +42,8 @@ function create_team(array $a, array $user, string $teamName): void
     $org = $a['org'];
     $base = repo_name_for($a['slug'], $user['github_login']);
 
+    // Refresh the token now, so its settings write isn't held (or rolled back) by the transaction.
+    gh_token($org);
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -139,7 +141,13 @@ function invite_member(int $teamId, string $sso): bool
             . '/collaborators/' . rawurlencode($row['github_login']);
         // A freshly generated repo may not be ready yet (404), so retry a few times.
         for ($i = 0; $i < 4; $i++) {
-            [$s, $body] = gh($row['org'], 'PUT', $path, ['permission' => 'push']);
+            try {
+                [$s, $body] = gh($row['org'], 'PUT', $path, ['permission' => 'push']);
+            } catch (RuntimeException $e) {
+                // Token or network failure: record it, so the retry button picks it up.
+                $error = $e->getMessage();
+                break;
+            }
             if ($s === 201 || $s === 204) {
                 $error = null;
                 break;

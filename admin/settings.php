@@ -35,9 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         redirect('admin/settings.php');
     } elseif ($action === 'github' && $db) {
-        foreach (['gh_app_id', 'gh_client_id'] as $k) {
-            set_setting($k, trim((string) $_POST[$k]));
-        }
+        set_setting('gh_client_id', trim((string) $_POST['gh_client_id']));
         foreach (['gh_client_secret', 'gh_private_key'] as $k) {
             if (trim((string) $_POST[$k]) !== '') {
                 set_setting($k, trim((string) $_POST[$k]));
@@ -119,7 +117,7 @@ echo '<fieldset><legend>2. GitHub App</legend>'
     . '<li><b>Repository permissions:</b> Administration: Read and write · Contents: Read-only · Metadata: Read-only.</li>'
     . '<li><b>Organization permissions</b> (optional): Administration: Read-only, so assignment saves can check the org\'s base permission.</li>'
     . '<li><b>Where can this app be installed:</b> Any account. It only acts on orgs where it is installed.</li></ul>'
-    . '<p>After creating it, copy the <b>App ID</b> and <b>Client ID</b> into the form below, '
+    . '<p>After creating it, copy the <b>Client ID</b> into the form below, '
     . 'and use <i>Generate a new client secret</i> and <i>Generate a private key</i> for the other two fields.</p>'
     . '<p><b>Install the app</b> on each group\'s org (<i>Install App</i> in the app settings), with <i>All repositories</i>. '
     . 'Installed orgs appear in the assignment form; <b>Test GitHub connection</b> lists them.</p>'
@@ -130,7 +128,6 @@ echo '<fieldset><legend>2. GitHub App</legend>'
     . '<li>Make teachers org <b>owners</b>; that gives them access to all repos.</li></ul>'
     . '</details>'
     . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="github">'
-    . '<label>App ID</label><input type="text" name="gh_app_id" value="' . h(setting('gh_app_id')) . '" required>'
     . '<label>Client ID</label><input type="text" name="gh_client_id" value="' . h(setting('gh_client_id')) . '" required>'
     . '<label>Client secret</label><input type="password" name="gh_client_secret" placeholder="' . $secretSet('gh_client_secret') . '">'
     . '<label>Private key (.pem contents)</label><textarea name="gh_private_key" rows="4" placeholder="'

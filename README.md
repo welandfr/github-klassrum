@@ -23,7 +23,7 @@ One app serves all group orgs. Create it under one of the orgs (or your user acc
 - **Organization permissions** (optional): *Administration*: Read-only. This lets the app check each org's base permission.
 - **Where can this app be installed**: Any account. The app only acts on orgs where it is installed.
 
-After creating it, note the **App ID** and **Client ID**, generate a **client secret**, and generate a **private key** (.pem). Then use **Install App** to install it on each group's org with *All repositories*. For a new group, install it on that org and it appears in the assignment form.
+After creating it, note the **Client ID**, generate a **client secret**, and generate a **private key** (.pem). Then use **Install App** to install it on each group's org with *All repositories*. For a new group, install it on that org and it appears in the assignment form.
 
 ## 3. Org settings
 
@@ -40,7 +40,7 @@ For each group org:
 Open `https://<host>/~<you>/classroom/admin/settings.php`:
 
 1. Check that the database shows as connected, and click **Run pending migrations** to create the tables.
-2. Enter the App ID, Client ID, client secret and private key, then click **Test GitHub connection**. It lists the orgs the app is installed on.
+2. Enter the Client ID, client secret and private key, then click **Test GitHub connection**. It lists the orgs the app is installed on.
 
 ## 5. Assignments
 

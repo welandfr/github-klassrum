@@ -24,13 +24,22 @@ function db_connect(array $c): PDO
     ]);
 }
 
+/**
+ * True when the dev conveniences (auto-migrate, reset) may touch the database: only under
+ * PHP's built-in server and with DB_IS_DEV=1, so a dev setup pointed at production is safe.
+ */
+function is_dev_db(): bool
+{
+    return IS_DEV_SERVER && env('DB_IS_DEV') === '1';
+}
+
 function db(): PDO
 {
     static $pdo;
     if ($pdo === null) {
         $c = db_config() ?? throw new RuntimeException('Database is not configured.');
         $pdo = db_connect($c);
-        if (IS_DEV_SERVER) {
+        if (is_dev_db()) {
             // New migration files take effect on reload. A failure is only flashed, so the
             // settings page (with its reset button) stays usable.
             try {

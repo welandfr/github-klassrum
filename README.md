@@ -59,7 +59,7 @@ Share the join link it shows. The assignment page lists teams, repos and members
 Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `classroom_schema_migrations` table. All tables use the `classroom_` prefix, so the app can share a database. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
 
 - **Production**: after deploying new migration files, admin pages show a "migrations pending" banner. Apply them with **Run pending migrations** on the settings page. MySQL commits schema changes immediately, so a migration that fails halfway stays partly applied and has to be fixed by hand.
-- **Development** (PHP's built-in server): pending migrations are applied on every page load. **Reset database** on the settings page drops all `classroom_` tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration.
+- **Development** (PHP's built-in server with `DB_IS_DEV=1` in `.env`): pending migrations are applied on every page load. **Reset database** on the settings page drops all `classroom_` tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration. Without `DB_IS_DEV=1`, e.g. when developing against the production database, the dev server behaves like production here: no reset button, and migrations only run from the button.
 
 ## Local development
 
@@ -69,7 +69,7 @@ php -S 0.0.0.0:8000 -t . dev/router.php
 
 The router stands in for SSO: requests run as `dev` (or `$DEV_USER`), and `?as=<user>` switches user. Under the built-in server the app uses `http://` URLs and a non-`Secure` session cookie.
 
-Create `config/.env` (gitignored) for your dev database, with `ADMINS=dev`. For a MySQL container on the Docker host, use `DB_HOST=host.docker.internal`.
+Create `config/.env` (gitignored) for your dev database, with `ADMINS=dev`. For a MySQL container on the Docker host, use `DB_HOST=host.docker.internal`, and add `DB_IS_DEV=1` if the database is disposable (see Database migrations).
 
 ## Notes
 

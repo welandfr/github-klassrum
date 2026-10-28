@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('err', $e->getMessage());
         }
         redirect('admin/settings.php');
-    } elseif ($action === 'reset' && $db && IS_DEV_SERVER) {
+    } elseif ($action === 'reset' && $db && is_dev_db()) {
         try {
             reset_database(db());
             flash('ok', 'Database reset: all tables dropped and migrations re-run.');
@@ -93,7 +93,7 @@ foreach (migration_files() as $name => $_) {
 }
 echo '</table><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="migrate">'
     . '<button' . ($pending ? '' : ' disabled') . '>Run pending migrations</button></form>';
-if (IS_DEV_SERVER) {
+if (is_dev_db()) {
     echo '<form method="post" onsubmit="return confirm(\'Drop all classroom_ tables, including GitHub settings, and re-run all migrations?\')">'
         . csrf_field() . '<input type="hidden" name="action" value="reset">'
         . '<p><button style="background:var(--err)">Reset database (dev only)</button></p></form>';

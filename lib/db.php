@@ -1,15 +1,17 @@
 <?php
 declare(strict_types=1);
 
-/** DB credentials from the config file written by admin/settings.php, or null before setup. */
+/** DB credentials from the environment / .env (see env()), or null before setup. */
 function db_config(): ?array
 {
-    static $cfg;
-    if ($cfg === null) {
-        $f = CONFIG_DIR . '/settings.php';
-        $cfg = is_file($f) ? (require $f)['db'] ?? false : false;
-    }
-    return $cfg ?: null;
+    $c = [
+        'host' => env('DB_HOST') ?? 'localhost',
+        'port' => (int) (env('DB_PORT') ?: 3306),
+        'name' => env('DB_NAME') ?? '',
+        'user' => env('DB_USER') ?? '',
+        'pass' => env('DB_PASS') ?? '',
+    ];
+    return $c['name'] !== '' && $c['user'] !== '' ? $c : null;
 }
 
 function db_connect(array $c): PDO
@@ -58,7 +60,7 @@ function is_duplicate_key(PDOException $e): bool
 function &settings_cache(): array
 {
     static $cache;
-    $cache ??= q('SELECT k, v FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $cache ??= q('SELECT k, v FROM classroom_settings')->fetchAll(PDO::FETCH_KEY_PAIR);
     return $cache;
 }
 
@@ -69,7 +71,7 @@ function setting(string $k): ?string
 
 function set_setting(string $k, string $v): void
 {
-    q('INSERT INTO settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [$k, $v]);
+    q('INSERT INTO classroom_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [$k, $v]);
     $cache = &settings_cache();
     $cache[$k] = $v;
 }
@@ -93,11 +95,11 @@ function migration_files(): array
 /** @return string[] names of migrations not yet applied */
 function pending_migrations(PDO $pdo): array
 {
-    $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (
+    $pdo->exec('CREATE TABLE IF NOT EXISTS classroom_schema_migrations (
         name VARCHAR(191) PRIMARY KEY,
         applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    $applied = $pdo->query('SELECT name FROM schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
+    $applied = $pdo->query('SELECT name FROM classroom_schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
     return array_values(array_diff(array_keys(migration_files()), $applied));
 }
 
@@ -118,16 +120,16 @@ function migrate(PDO $pdo): array
                 throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
             }
         }
-        $pdo->prepare('INSERT INTO schema_migrations (name) VALUES (?)')->execute([$name]);
+        $pdo->prepare('INSERT INTO classroom_schema_migrations (name) VALUES (?)')->execute([$name]);
     }
     return $pending;
 }
 
-/** Drops every table in the database, then re-runs all migrations. For the dev server only. */
+/** Drops the app's (classroom_*) tables, then re-runs all migrations. For the dev server only. */
 function reset_database(PDO $pdo): array
 {
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-    foreach ($pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $t) {
+    foreach ($pdo->query("SHOW TABLES LIKE 'classroom\\_%'")->fetchAll(PDO::FETCH_COLUMN) as $t) {
         $pdo->exec('DROP TABLE `' . str_replace('`', '``', $t) . '`');
     }
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

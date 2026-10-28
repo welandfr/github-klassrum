@@ -7,13 +7,13 @@ if (!db_config()) {
 }
 
 $id = (int) ($_GET['id'] ?? 0);
-$a = $id ? q('SELECT * FROM assignments WHERE id = ?', [$id])->fetch() : null;
+$a = $id ? q('SELECT * FROM classroom_assignments WHERE id = ?', [$id])->fetch() : null;
 if ($id && !$a) {
     http_response_code(404);
     exit('No such assignment.');
 }
 // The org can't change once repos exist in it.
-$orgLocked = $a && q('SELECT 1 FROM teams WHERE assignment_id = ? LIMIT 1', [$a['id']])->fetch();
+$orgLocked = $a && q('SELECT 1 FROM classroom_teams WHERE assignment_id = ? LIMIT 1', [$a['id']])->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
@@ -52,10 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $params = [$f['org'], $f['title'], $f['slug'], $tpl['owner']['login'], $tpl['name'], $f['max_team_size'], $f['is_open']];
             try {
                 if ($a) {
-                    q('UPDATE assignments SET org = ?, title = ?, slug = ?, template_owner = ?, template_repo = ?, max_team_size = ?, is_open = ?
+                    q('UPDATE classroom_assignments SET org = ?, title = ?, slug = ?, template_owner = ?, template_repo = ?, max_team_size = ?, is_open = ?
                        WHERE id = ?', [...$params, $a['id']]);
                 } else {
-                    q('INSERT INTO assignments (org, title, slug, template_owner, template_repo, max_team_size, is_open, invite_code)
+                    q('INSERT INTO classroom_assignments (org, title, slug, template_owner, template_repo, max_team_size, is_open, invite_code)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [...$params, bin2hex(random_bytes(8))]);
                     $id = (int) db()->lastInsertId();
                 }
@@ -130,7 +130,7 @@ echo '<fieldset><legend>' . ($a ? 'Edit' : 'Create') . '</legend><form method="p
     . '<p><button>Save</button></p></form></fieldset>';
 
 if ($a) {
-    $teams = q('SELECT * FROM teams WHERE assignment_id = ? ORDER BY name', [$a['id']])->fetchAll();
+    $teams = q('SELECT * FROM classroom_teams WHERE assignment_id = ? ORDER BY name', [$a['id']])->fetchAll();
     echo '<h2>Teams (' . count($teams) . ')</h2>';
     if ($teams) {
         echo '<table><tr><th>Team</th><th>Repository</th><th>Members</th></tr>';

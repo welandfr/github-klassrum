@@ -7,9 +7,10 @@ Requires PHP 8.1+ with `pdo_mysql`, `curl` and `openssl`, a MySQL/MariaDB databa
 ## 1. Deploy
 
 1. Copy this folder to the server, e.g. `~/public_html/classroom/`, inside the SSO-protected area.
-2. Add your SSO username to `config/admins.php`.
-3. Config location: if `~/classroom-config/` exists (one level above `public_html`), it is used instead of `config/`. Put `admins.php` there too. This keeps the DB password outside the web root. Otherwise `config/` is used, protected by `.htaccess`. Its PHP files output nothing even if `.htaccess` is ignored.
-4. The config dir must be writable by the web server for the first save on the settings page. If it isn't, the settings page shows the file content so you can create `settings.php` by hand.
+2. Create the config file: copy `config/.env.example` to `~/classroom-config/.env`, one level above `public_html`. Fill in the MySQL credentials and `ADMINS`, your SSO username (comma-separate several), then make it readable only by you and the web server (e.g. `chmod 640`).
+   - If `~/classroom-config/` exists it is used, otherwise `config/.env` inside the app. Prefer the former: a `.env` inside the web root is only protected by `.htaccess`, and would be served as plain text if the server ignores it.
+   - Real environment variables (e.g. Apache `SetEnv`) override `.env` values.
+   - Until this is done, the admin pages show these instructions.
 
 ## 2. Create the GitHub App
 
@@ -38,7 +39,7 @@ For each group org:
 
 Open `https://<host>/~<you>/classroom/admin/settings.php`:
 
-1. Enter the MySQL credentials. Saving applies the database migrations, which creates the tables.
+1. Check that the database shows as connected, and click **Run pending migrations** to create the tables.
 2. Enter the App ID, Client ID, client secret and private key, then click **Test GitHub connection**. It lists the orgs the app is installed on.
 
 ## 5. Assignments
@@ -55,10 +56,10 @@ Share the join link it shows. The assignment page lists teams, repos and members
 
 ## Database migrations
 
-Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `schema_migrations` table. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
+Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `classroom_schema_migrations` table. All tables use the `classroom_` prefix, so the app can share a database. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
 
 - **Production**: after deploying new migration files, admin pages show a "migrations pending" banner. Apply them with **Run pending migrations** on the settings page. MySQL commits schema changes immediately, so a migration that fails halfway stays partly applied and has to be fixed by hand.
-- **Development** (PHP's built-in server): pending migrations are applied on every page load. **Reset database** on the settings page drops all tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration.
+- **Development** (PHP's built-in server): pending migrations are applied on every page load. **Reset database** on the settings page drops all `classroom_` tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration.
 
 ## Local development
 
@@ -66,7 +67,9 @@ Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due
 php -S 0.0.0.0:8000 -t . dev/router.php
 ```
 
-The router stands in for SSO: requests run as `dev` (or `$DEV_USER`), and `?as=<user>` switches user. Under the built-in server the app uses `http://` URLs and a non-`Secure` session cookie. Remove `'dev'` from `config/admins.php` on the server.
+The router stands in for SSO: requests run as `dev` (or `$DEV_USER`), and `?as=<user>` switches user. Under the built-in server the app uses `http://` URLs and a non-`Secure` session cookie.
+
+Create `config/.env` (gitignored) for your dev database, with `ADMINS=dev`. For a MySQL container on the Docker host, use `DB_HOST=host.docker.internal`.
 
 ## Notes
 

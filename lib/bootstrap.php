@@ -69,20 +69,63 @@ function sso_user(): string
 
 function is_admin(): bool
 {
-    static $admins;
-    if ($admins === null) {
-        $f = CONFIG_DIR . '/admins.php';
-        $admins = is_file($f) ? (array) (require $f) : [];
-    }
+    $admins = array_filter(array_map('trim', explode(',', env('ADMINS') ?? '')));
     return in_array(sso_user(), $admins, true);
+}
+
+// ---- config ----
+
+/**
+ * Config value from the real environment (e.g. Apache SetEnv), else from CONFIG_DIR/.env.
+ * .env lines are KEY=VALUE; blank lines and lines starting with # are ignored, and one pair
+ * of surrounding quotes is removed from the value. A # inside a value is kept as is.
+ */
+function env(string $k): ?string
+{
+    static $file;
+    if ($file === null) {
+        $file = [];
+        $path = CONFIG_DIR . '/.env';
+        foreach (is_file($path) ? file($path, FILE_IGNORE_NEW_LINES) : [] as $line) {
+            if (preg_match('/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/', $line, $m)) {
+                $file[$m[1]] = preg_replace('/^([\'"])(.*)\1$/', '$2', $m[2]);
+            }
+        }
+    }
+    $v = $_SERVER[$k] ?? getenv($k);
+    return is_string($v) ? $v : $file[$k] ?? null;
 }
 
 function require_admin(): void
 {
     if (!is_admin()) {
         http_response_code(403);
-        exit('Admins only.');
+        if ((env('ADMINS') ?? '') !== '') {
+            exit('Admins only.');
+        }
+        // Nobody is an admin yet, so this is a fresh install: show how to set it up.
+        page_start('Setup');
+        echo '<p class="err">No admins are configured yet.</p>' . env_instructions();
+        page_end();
+        exit;
     }
+}
+
+/** How to create the .env file, with the current user filled in as admin. */
+function env_instructions(): string
+{
+    $path = CONFIG_DIR . '/.env';
+    $example = "DB_HOST=localhost\nDB_PORT=3306\nDB_NAME=classroom\nDB_USER=classroom\nDB_PASS=secret\n"
+        . 'ADMINS=' . sso_user() . "\n";
+    return '<p>Configuration is read from <code>' . h($path) . '</code>'
+        . (is_file($path) ? '' : ' <span class="err">(file not found)</span>') . '. '
+        . 'Real environment variables (e.g. Apache <code>SetEnv</code>) override it.</p>'
+        . '<ol><li>Copy <code>config/.env.example</code> to that path'
+        . (str_ends_with(CONFIG_DIR, '/classroom-config') ? '' : ', or preferably to <code>~/classroom-config/.env</code>, outside the web root')
+        . '.</li><li>Fill in the database credentials and the admin SSO usernames (comma-separated):'
+        . '<pre>' . h($example) . '</pre></li>'
+        . '<li>Make it readable only by you and the web server, e.g. <code>chmod 640</code>.</li>'
+        . '<li>Reload this page.</li></ol>';
 }
 
 // ---- urls ----

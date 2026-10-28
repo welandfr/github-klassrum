@@ -6,7 +6,7 @@ $sso = sso_user();
 require_configured();
 
 $code = (string) ($_GET['code'] ?? '');
-$a = q('SELECT * FROM assignments WHERE invite_code = ?', [$code])->fetch();
+$a = q('SELECT * FROM classroom_assignments WHERE invite_code = ?', [$code])->fetch();
 if (!$a) {
     http_response_code(404);
     page_start('Not found');
@@ -89,7 +89,7 @@ echo '<p class="muted">Your repository will be named <code>' . h(repo_name_for($
 if ($size > 1) {
     $teams = q('SELECT t.id, t.name, COUNT(m.sso_user) AS n,
                        GROUP_CONCAT(COALESCE(u.github_login, m.sso_user) ORDER BY m.joined_at SEPARATOR \', \') AS members
-                FROM teams t LEFT JOIN team_members m ON m.team_id = t.id LEFT JOIN users u ON u.sso_user = m.sso_user
+                FROM classroom_teams t LEFT JOIN classroom_team_members m ON m.team_id = t.id LEFT JOIN classroom_users u ON u.sso_user = m.sso_user
                 WHERE t.assignment_id = ? GROUP BY t.id ORDER BY t.name', [$a['id']])->fetchAll();
     echo '<h2>Or join an existing team</h2>';
     if (!$teams) {

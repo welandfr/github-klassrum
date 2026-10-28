@@ -8,18 +8,18 @@ class UserError extends RuntimeException
 
 function linked_user(string $sso): ?array
 {
-    return q('SELECT * FROM users WHERE sso_user = ?', [$sso])->fetch() ?: null;
+    return q('SELECT * FROM classroom_users WHERE sso_user = ?', [$sso])->fetch() ?: null;
 }
 
 function my_team(int $assignmentId, string $sso): ?array
 {
-    return q('SELECT t.* FROM teams t JOIN team_members m ON m.team_id = t.id
+    return q('SELECT t.* FROM classroom_teams t JOIN classroom_team_members m ON m.team_id = t.id
               WHERE m.assignment_id = ? AND m.sso_user = ?', [$assignmentId, $sso])->fetch() ?: null;
 }
 
 function team_members(int $teamId): array
 {
-    return q('SELECT m.*, u.github_login FROM team_members m LEFT JOIN users u USING (sso_user)
+    return q('SELECT m.*, u.github_login FROM classroom_team_members m LEFT JOIN classroom_users u USING (sso_user)
               WHERE m.team_id = ? ORDER BY m.joined_at', [$teamId])->fetchAll();
 }
 
@@ -48,14 +48,14 @@ function create_team(array $a, array $user, string $teamName): void
         if (my_team((int) $a['id'], $user['sso_user'])) {
             throw new UserError('You are already in a team for this assignment.');
         }
-        if (q('SELECT 1 FROM teams WHERE assignment_id = ? AND name = ?', [$a['id'], $teamName])->fetch()) {
+        if (q('SELECT 1 FROM classroom_teams WHERE assignment_id = ? AND name = ?', [$a['id'], $teamName])->fetch()) {
             throw new UserError('A team with that name already exists.');
         }
         try {
-            q('INSERT INTO teams (assignment_id, name, org, repo_name, created_by) VALUES (?, ?, ?, ?, ?)',
+            q('INSERT INTO classroom_teams (assignment_id, name, org, repo_name, created_by) VALUES (?, ?, ?, ?, ?)',
                 [$a['id'], $teamName, $org, $base . '-' . bin2hex(random_bytes(4)), $user['sso_user']]);
             $teamId = (int) $pdo->lastInsertId();
-            q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
+            q('INSERT INTO classroom_team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
                 [$teamId, $a['id'], $user['sso_user']]);
         } catch (PDOException $e) {
             if (is_duplicate_key($e)) {
@@ -68,7 +68,7 @@ function create_team(array $a, array $user, string $teamName): void
         $repo = null;
         for ($i = 1; $i <= 20 && $repo === null; $i++) {
             $name = $i === 1 ? $base : "$base-$i";
-            if (q('SELECT 1 FROM teams WHERE org = ? AND repo_name = ?', [$org, $name])->fetch()) {
+            if (q('SELECT 1 FROM classroom_teams WHERE org = ? AND repo_name = ?', [$org, $name])->fetch()) {
                 continue;
             }
             [$s, $body] = gh($org, 'POST', '/repos/' . rawurlencode($a['template_owner']) . '/' . rawurlencode($a['template_repo']) . '/generate', [
@@ -85,7 +85,7 @@ function create_team(array $a, array $user, string $teamName): void
         if ($repo === null) {
             throw new RuntimeException("No free repository name found for $base");
         }
-        q('UPDATE teams SET repo_name = ?, repo_url = ? WHERE id = ?', [$repo['name'], $repo['html_url'], $teamId]);
+        q('UPDATE classroom_teams SET repo_name = ?, repo_url = ? WHERE id = ?', [$repo['name'], $repo['html_url'], $teamId]);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -100,16 +100,16 @@ function join_team(array $a, array $user, int $teamId): void
     $pdo->beginTransaction();
     try {
         // Lock the team row so concurrent joins can't exceed the size limit.
-        $team = q('SELECT * FROM teams WHERE id = ? AND assignment_id = ? FOR UPDATE', [$teamId, $a['id']])->fetch();
+        $team = q('SELECT * FROM classroom_teams WHERE id = ? AND assignment_id = ? FOR UPDATE', [$teamId, $a['id']])->fetch();
         if (!$team) {
             throw new UserError('That team does not exist.');
         }
-        $count = (int) q('SELECT COUNT(*) FROM team_members WHERE team_id = ?', [$teamId])->fetchColumn();
+        $count = (int) q('SELECT COUNT(*) FROM classroom_team_members WHERE team_id = ?', [$teamId])->fetchColumn();
         if ($count >= (int) $a['max_team_size']) {
             throw new UserError('That team is already full.');
         }
         try {
-            q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
+            q('INSERT INTO classroom_team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
                 [$teamId, $a['id'], $user['sso_user']]);
         } catch (PDOException $e) {
             if (is_duplicate_key($e)) {
@@ -131,7 +131,7 @@ function join_team(array $a, array $user, int $teamId): void
  */
 function invite_member(int $teamId, string $sso): bool
 {
-    $row = q('SELECT t.org, t.repo_name, u.github_login FROM teams t, users u WHERE t.id = ? AND u.sso_user = ?',
+    $row = q('SELECT t.org, t.repo_name, u.github_login FROM classroom_teams t, classroom_users u WHERE t.id = ? AND u.sso_user = ?',
         [$teamId, $sso])->fetch();
     $error = 'Student has no linked GitHub account';
     if ($row) {
@@ -151,7 +151,7 @@ function invite_member(int $teamId, string $sso): bool
             sleep(2);
         }
     }
-    q('UPDATE team_members SET invite_status = ?, invite_error = ? WHERE team_id = ? AND sso_user = ?',
+    q('UPDATE classroom_team_members SET invite_status = ?, invite_error = ? WHERE team_id = ? AND sso_user = ?',
         [$error === null ? 'invited' : 'failed', $error === null ? null : substr($error, 0, 255), $teamId, $sso]);
     return $error === null;
 }
@@ -160,7 +160,7 @@ function invite_member(int $teamId, string $sso): bool
 function retry_failed_invites(int $assignmentId): array
 {
     $ok = $failed = 0;
-    $rows = q("SELECT team_id, sso_user FROM team_members WHERE assignment_id = ? AND invite_status <> 'invited'",
+    $rows = q("SELECT team_id, sso_user FROM classroom_team_members WHERE assignment_id = ? AND invite_status <> 'invited'",
         [$assignmentId])->fetchAll();
     foreach ($rows as $r) {
         invite_member((int) $r['team_id'], $r['sso_user']) ? $ok++ : $failed++;

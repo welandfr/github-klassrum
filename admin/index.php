@@ -2,13 +2,13 @@
 declare(strict_types=1);
 require dirname(__DIR__) . '/lib/bootstrap.php';
 require_admin();
-if (!db_config()) {
+if (!schema_installed()) {
     redirect('admin/settings.php');
 }
 
 $rows = q('SELECT a.*, COUNT(DISTINCT t.id) AS teams, COUNT(m.sso_user) AS students,
                   SUM(m.invite_status <> \'invited\') AS failed
-           FROM classroom_assignments a LEFT JOIN classroom_teams t ON t.assignment_id = a.id LEFT JOIN classroom_team_members m ON m.team_id = t.id
+           FROM assignments a LEFT JOIN teams t ON t.assignment_id = a.id LEFT JOIN team_members m ON m.team_id = t.id
            GROUP BY a.id ORDER BY a.org, a.created_at DESC')->fetchAll();
 
 page_start('Assignments');

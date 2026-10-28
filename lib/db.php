@@ -1,27 +1,24 @@
 <?php
 declare(strict_types=1);
 
-/** DB credentials from the environment / .env (see env()), or null before setup. */
-function db_config(): ?array
+/** SQLite database file: DB_PATH from the environment / .env (see env()), else in the config dir. */
+function db_path(): string
 {
-    $c = [
-        'host' => env('DB_HOST') ?? 'localhost',
-        'port' => (int) (env('DB_PORT') ?: 3306),
-        'name' => env('DB_NAME') ?? '',
-        'user' => env('DB_USER') ?? '',
-        'pass' => env('DB_PASS') ?? '',
-    ];
-    return $c['name'] !== '' && $c['user'] !== '' ? $c : null;
+    return env('DB_PATH') ?: CONFIG_DIR . '/classroom.sqlite';
 }
 
-function db_connect(array $c): PDO
+function db_connect(string $path): PDO
 {
-    $dsn = "mysql:host={$c['host']};port={$c['port']};dbname={$c['name']};charset=utf8mb4";
-    return new PDO($dsn, $c['user'], $c['pass'], [
+    $pdo = new PDO('sqlite:' . $path, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::ATTR_TIMEOUT => 15,  // seconds to wait for another request's write lock
     ]);
+    // WAL lets reads continue during a write; foreign keys are off by default in SQLite.
+    $pdo->exec('PRAGMA journal_mode = WAL');
+    $pdo->exec('PRAGMA synchronous = NORMAL');
+    $pdo->exec('PRAGMA foreign_keys = ON');
+    return $pdo;
 }
 
 /**
@@ -37,8 +34,7 @@ function db(): PDO
 {
     static $pdo;
     if ($pdo === null) {
-        $c = db_config() ?? throw new RuntimeException('Database is not configured.');
-        $pdo = db_connect($c);
+        $pdo = db_connect(db_path());
         if (is_dev_db()) {
             // New migration files take effect on reload. A failure is only flashed, so the
             // settings page (with its reset button) stays usable.
@@ -59,28 +55,47 @@ function q(string $sql, array $params = []): PDOStatement
     return $st;
 }
 
-function is_duplicate_key(PDOException $e): bool
+/**
+ * Runs $fn in a write transaction and returns its result. BEGIN IMMEDIATE takes SQLite's
+ * single write lock up front, so what $fn reads stays valid until it commits.
+ * Keep it short (no GitHub calls inside): every other write waits for it.
+ */
+function tx(callable $fn): mixed
 {
-    return ($e->errorInfo[1] ?? null) === 1062;
+    $pdo = db();
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $result = $fn();
+        $pdo->exec('COMMIT');
+        return $result;
+    } catch (Throwable $e) {
+        $pdo->exec('ROLLBACK');
+        throw $e;
+    }
 }
 
-// ---- key/value settings (GitHub App config, cached installation token) ----
+function is_duplicate_key(PDOException $e): bool
+{
+    return str_contains($e->getMessage(), 'UNIQUE constraint failed');
+}
+
+// ---- key/value settings (GitHub App config, cached installation tokens) ----
 
 function &settings_cache(): array
 {
     static $cache;
-    $cache ??= q('SELECT k, v FROM classroom_settings')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $cache ??= q('SELECT k, v FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
     return $cache;
 }
 
 function setting(string $k): ?string
 {
-    return db_config() ? settings_cache()[$k] ?? null : null;
+    return settings_cache()[$k] ?? null;
 }
 
 function set_setting(string $k, string $v): void
 {
-    q('INSERT INTO classroom_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [$k, $v]);
+    q('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v', [$k, $v]);
     $cache = &settings_cache();
     $cache[$k] = $v;
 }
@@ -88,7 +103,7 @@ function set_setting(string $k, string $v): void
 // ---- migrations ----
 // Files in migrations/ named NNN_description.sql, applied once each in name order and
 // recorded in schema_migrations. Statements are separated by a ";" at the end of a line.
-// MySQL commits DDL immediately, so a migration that fails halfway is left partly applied.
+// Each migration runs in one transaction, so a failing one leaves no trace.
 
 /** @return array<string,string> migration name => file path, in apply order */
 function migration_files(): array
@@ -101,15 +116,23 @@ function migration_files(): array
     return $files;
 }
 
+/** @return array<string,string> applied migration name => applied_at (UTC) */
+function applied_migrations(PDO $pdo): array
+{
+    $exists = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")->fetch();
+    return $exists ? $pdo->query('SELECT name, applied_at FROM schema_migrations')->fetchAll(PDO::FETCH_KEY_PAIR) : [];
+}
+
 /** @return string[] names of migrations not yet applied */
 function pending_migrations(PDO $pdo): array
 {
-    $pdo->exec('CREATE TABLE IF NOT EXISTS classroom_schema_migrations (
-        name VARCHAR(191) PRIMARY KEY,
-        applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    $applied = $pdo->query('SELECT name FROM classroom_schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
-    return array_values(array_diff(array_keys(migration_files()), $applied));
+    return array_values(array_diff(array_keys(migration_files()), array_keys(applied_migrations($pdo))));
+}
+
+/** False on a fresh install, before the first migration has created the tables. */
+function schema_installed(): bool
+{
+    return applied_migrations(db()) !== [];
 }
 
 /** Applies pending migrations; returns the names applied. */
@@ -118,30 +141,37 @@ function migrate(PDO $pdo): array
     $pending = pending_migrations($pdo);
     $files = migration_files();
     foreach ($pending as $name) {
-        foreach (preg_split('/;\s*$/m', file_get_contents($files[$name])) as $sql) {
-            // Skip the empty tail and comment-only chunks.
-            if (trim(preg_replace('/^\s*--.*$/m', '', $sql)) === '') {
-                continue;
+        $pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) STRICT');
+            foreach (preg_split('/;\s*$/m', file_get_contents($files[$name])) as $sql) {
+                // Skip the empty tail and comment-only chunks.
+                if (trim(preg_replace('/^\s*--.*$/m', '', $sql)) !== '') {
+                    $pdo->exec($sql);
+                }
             }
-            try {
-                $pdo->exec($sql);
-            } catch (PDOException $e) {
-                throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
-            }
+            $pdo->prepare('INSERT INTO schema_migrations (name) VALUES (?)')->execute([$name]);
+            $pdo->exec('COMMIT');
+        } catch (PDOException $e) {
+            $pdo->exec('ROLLBACK');
+            throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
         }
-        $pdo->prepare('INSERT INTO classroom_schema_migrations (name) VALUES (?)')->execute([$name]);
     }
     return $pending;
 }
 
-/** Drops the app's (classroom_*) tables, then re-runs all migrations. For the dev server only. */
+/** Drops every table, then re-runs all migrations. For the dev server only. */
 function reset_database(PDO $pdo): array
 {
-    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-    foreach ($pdo->query("SHOW TABLES LIKE 'classroom\\_%'")->fetchAll(PDO::FETCH_COLUMN) as $t) {
-        $pdo->exec('DROP TABLE `' . str_replace('`', '``', $t) . '`');
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite%'")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($tables as $t) {
+        $pdo->exec('DROP TABLE "' . str_replace('"', '""', $t) . '"');
     }
-    $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    $pdo->exec('PRAGMA foreign_keys = ON');
     return migrate($pdo);
 }
 

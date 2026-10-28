@@ -51,13 +51,14 @@ if ($s !== 200) {
     throw gh_error('Could not read GitHub user', $s, $gh);
 }
 
-$other = q('SELECT sso_user FROM classroom_users WHERE github_id = ? AND sso_user <> ?', [$gh['id'], $sso])->fetch();
+$other = q('SELECT sso_user FROM users WHERE github_id = ? AND sso_user <> ?', [$gh['id'], $sso])->fetch();
 if ($other) {
     flash('err', "GitHub account {$gh['login']} is already linked to another university user.");
     redirect($return);
 }
-q('INSERT INTO classroom_users (sso_user, github_id, github_login) VALUES (?, ?, ?)
-   ON DUPLICATE KEY UPDATE github_id = VALUES(github_id), github_login = VALUES(github_login)',
+q('INSERT INTO users (sso_user, github_id, github_login) VALUES (?, ?, ?)
+   ON CONFLICT (sso_user) DO UPDATE
+   SET github_id = excluded.github_id, github_login = excluded.github_login, linked_at = CURRENT_TIMESTAMP',
     [$sso, $gh['id'], $gh['login']]);
 flash('ok', "Linked GitHub account {$gh['login']}.");
 redirect($return);

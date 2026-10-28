@@ -116,16 +116,15 @@ function require_admin(): void
 function env_instructions(): string
 {
     $path = CONFIG_DIR . '/.env';
-    $example = "DB_HOST=localhost\nDB_PORT=3306\nDB_NAME=classroom\nDB_USER=classroom\nDB_PASS=secret\n"
-        . 'ADMINS=' . sso_user() . "\n";
+    $example = 'ADMINS=' . sso_user() . "\n# Optional; default: " . CONFIG_DIR . "/classroom.sqlite\n# DB_PATH=/path/to/classroom.sqlite\n";
     return '<p>Configuration is read from <code>' . h($path) . '</code>'
         . (is_file($path) ? '' : ' <span class="err">(file not found)</span>') . '. '
         . 'Real environment variables (e.g. Apache <code>SetEnv</code>) override it.</p>'
         . '<ol><li>Copy <code>config/.env.example</code> to that path'
-        . (str_ends_with(CONFIG_DIR, '/classroom-config') ? '' : ', or preferably to <code>~/classroom-config/.env</code>, outside the web root')
-        . '.</li><li>Fill in the database credentials and the admin SSO usernames (comma-separated):'
+        . (str_ends_with(CONFIG_DIR, '/classroom-config') ? '' : ', or preferably create <code>~/classroom-config/</code> outside the web root and copy it there')
+        . '.</li><li>Fill in the admin SSO usernames (comma-separated) and, if needed, the database path:'
         . '<pre>' . h($example) . '</pre></li>'
-        . '<li>Make it readable only by you and the web server, e.g. <code>chmod 640</code>.</li>'
+        . '<li>Make sure the web server can write to the database file\'s directory.</li>'
         . '<li>Reload this page.</li></ol>';
 }
 
@@ -196,10 +195,16 @@ function page_end(): void
     echo '</main></body></html>';
 }
 
+/** True once the tables exist and the GitHub App is configured. */
+function app_ready(): bool
+{
+    return schema_installed() && setting('gh_client_id') !== null;
+}
+
 /** Students see this when the admin hasn't finished setup. */
 function require_configured(): void
 {
-    if (!db_config() || setting('gh_client_id') === null) {
+    if (!app_ready()) {
         page_start('Not ready');
         echo '<p>This service has not been set up yet. Contact the teacher.</p>';
         page_end();

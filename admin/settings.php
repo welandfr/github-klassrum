@@ -3,15 +3,14 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/lib/bootstrap.php';
 require_admin();
 
-$db = db_config();
+// $db is false when the database file can't be opened; the page then only shows why.
 $dbError = null;
-if ($db) {
-    try {
-        db();
-    } catch (PDOException $e) {
-        $dbError = $e->getMessage();
-        $db = null;  // skip the actions and sections below that need the DB
-    }
+try {
+    db();
+    $db = true;
+} catch (PDOException $e) {
+    $dbError = $e->getMessage();
+    $db = false;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -62,37 +61,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 page_start('Settings');
 echo '<p><a href="' . h(url('admin/')) . '">← Assignments</a></p>';
 
-$envFile = CONFIG_DIR . '/.env';
+$path = db_path();
+$real = realpath($path) ?: $path;
 echo '<fieldset><legend>1. Database</legend>';
 if ($dbError !== null) {
-    echo '<p class="err">Could not connect: ' . h($dbError) . '</p>';
-} elseif ($db) {
-    echo '<p class="ok">Connected to <code>' . h("{$db['user']}@{$db['host']}:{$db['port']}/{$db['name']}") . '</code>.</p>';
+    echo '<p class="err">Could not open the SQLite database <code>' . h($path) . '</code>: ' . h($dbError) . '</p>'
+        . '<p>Its directory must exist and be writable by the web server (SQLite also creates '
+        . '<code>-wal</code> and <code>-shm</code> files next to it).</p>' . env_instructions();
 } else {
-    echo '<p class="err">The database is not configured in <code>.env</code>.</p>' . env_instructions();
+    echo '<p class="ok">SQLite ' . h((string) db()->query('SELECT sqlite_version()')->fetchColumn())
+        . ' database <code>' . h($real) . '</code> (' . number_format((int) filesize($real) / 1024) . ' KiB).</p>';
 }
-if ($db || $dbError !== null) {
-    echo '<p class="muted">Connection settings are read from <code>' . h($envFile) . '</code>'
-        . ' or the server environment. Edit them there and reload.</p>';
+if (str_starts_with($real, (realpath(APP_DIR) ?: APP_DIR) . '/')) {
+    echo '<p class="' . (IS_DEV_SERVER ? 'muted' : 'err') . '">The database file is inside the web root. If the server ignores '
+        . '<code>.htaccess</code>, it can be downloaded. Move it outside, e.g. to <code>~/classroom-config/</code>, '
+        . 'or set <code>DB_PATH</code>.</p>';
 }
-echo '</fieldset>';
+echo '<p class="muted">The location is <code>DB_PATH</code> in <code>' . h(CONFIG_DIR . '/.env') . '</code>, '
+    . 'by default <code>classroom.sqlite</code> in the config directory. Back it up by copying it with '
+    . '<code>sqlite3 ' . h($real) . ' ".backup backup.sqlite"</code>, not with <code>cp</code>.</p></fieldset>';
 
 if (!$db) {
     page_end();
     exit;
 }
 
-$applied = db()->query('SELECT name, applied_at FROM classroom_schema_migrations ORDER BY name')->fetchAll(PDO::FETCH_KEY_PAIR);
+$applied = applied_migrations(db());
 $pending = pending_migrations(db());
 echo '<fieldset><legend>Database schema</legend><table><tr><th>Migration</th><th>Applied</th></tr>';
 foreach (migration_files() as $name => $_) {
     echo '<tr><td><code>' . h($name) . '</code></td><td>'
-        . (isset($applied[$name]) ? h($applied[$name]) : '<span class="err">pending</span>') . '</td></tr>';
+        . (isset($applied[$name]) ? h($applied[$name]) . ' UTC' : '<span class="err">pending</span>') . '</td></tr>';
 }
 echo '</table><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="migrate">'
     . '<button' . ($pending ? '' : ' disabled') . '>Run pending migrations</button></form>';
 if (is_dev_db()) {
-    echo '<form method="post" onsubmit="return confirm(\'Drop all classroom_ tables, including GitHub settings, and re-run all migrations?\')">'
+    echo '<form method="post" onsubmit="return confirm(\'Drop all tables, including GitHub settings, and re-run all migrations?\')">'
         . csrf_field() . '<input type="hidden" name="action" value="reset">'
         . '<p><button style="background:var(--err)">Reset database (dev only)</button></p></form>';
 }

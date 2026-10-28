@@ -6,7 +6,7 @@ $sso = sso_user();
 require_configured();
 
 $code = (string) ($_GET['code'] ?? '');
-$a = q('SELECT * FROM classroom_assignments WHERE invite_code = ?', [$code])->fetch();
+$a = q('SELECT * FROM assignments WHERE invite_code = ?', [$code])->fetch();
 if (!$a) {
     http_response_code(404);
     page_start('Not found');
@@ -47,6 +47,15 @@ if (!$me) {
 }
 
 $team = my_team((int) $a['id'], $sso);
+if ($team && $team['repo_url'] === null) {
+    // Creation is still running (e.g. in another tab), or was abandoned: then clear it and offer a retry.
+    delete_stale_teams();
+    if ($team = my_team((int) $a['id'], $sso)) {
+        echo '<p>The repository for team <b>' . h($team['name']) . '</b> is being created. Reload this page in a moment.</p>';
+        page_end();
+        exit;
+    }
+}
 if ($team) {
     echo '<p>You are in team <b>' . h($team['name']) . '</b>.</p>'
         . '<p>Repository: <a href="' . h($team['repo_url']) . '">' . h($team['repo_url']) . '</a></p>';
@@ -87,10 +96,13 @@ echo '<p class="muted">Your repository will be named <code>' . h(repo_name_for($
     . '<button>' . ($size > 1 ? 'Create team' : 'Create my repository') . '</button></form></fieldset>';
 
 if ($size > 1) {
-    $teams = q('SELECT t.id, t.name, COUNT(m.sso_user) AS n,
-                       GROUP_CONCAT(COALESCE(u.github_login, m.sso_user) ORDER BY m.joined_at SEPARATOR \', \') AS members
-                FROM classroom_teams t LEFT JOIN classroom_team_members m ON m.team_id = t.id LEFT JOIN classroom_users u ON u.sso_user = m.sso_user
-                WHERE t.assignment_id = ? GROUP BY t.id ORDER BY t.name', [$a['id']])->fetchAll();
+    // Members in join order; an ordered subquery instead of group_concat(... ORDER BY), which needs SQLite 3.44.
+    $teams = q('SELECT t.id, t.name,
+                       (SELECT COUNT(*) FROM team_members m WHERE m.team_id = t.id) AS n,
+                       (SELECT group_concat(member, \', \') FROM (
+                           SELECT COALESCE(u.github_login, m.sso_user) AS member FROM team_members m
+                           LEFT JOIN users u ON u.sso_user = m.sso_user WHERE m.team_id = t.id ORDER BY m.joined_at)) AS members
+                FROM teams t WHERE t.assignment_id = ? AND t.repo_url IS NOT NULL ORDER BY t.name', [$a['id']])->fetchAll();
     echo '<h2>Or join an existing team</h2>';
     if (!$teams) {
         echo '<p class="muted">No teams yet.</p>';

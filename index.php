@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/lib/bootstrap.php';
 
 $sso = sso_user();
-if (is_admin() && (!db_config() || setting('gh_client_id') === null)) {
+if (is_admin() && !app_ready()) {
     redirect('admin/settings.php');
 }
 require_configured();
@@ -28,7 +28,7 @@ if (!$me) {
 }
 
 $teams = q('SELECT a.title, t.name, t.repo_name, t.repo_url, m.invite_status
-            FROM classroom_team_members m JOIN classroom_teams t ON t.id = m.team_id JOIN classroom_assignments a ON a.id = t.assignment_id
+            FROM team_members m JOIN teams t ON t.id = m.team_id JOIN assignments a ON a.id = t.assignment_id
             WHERE m.sso_user = ? ORDER BY t.created_at DESC', [$sso])->fetchAll();
 if (!$teams) {
     echo '<p class="muted">You have no assignment repos yet. Use the join link from your teacher.</p>';
@@ -36,8 +36,9 @@ if (!$teams) {
     echo '<table><tr><th>Assignment</th><th>Team</th><th>Repository</th></tr>';
     foreach ($teams as $t) {
         echo '<tr><td>' . h($t['title']) . '</td><td>' . h($t['name']) . '</td><td>'
-            . '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
-            . ($t['invite_status'] === 'invited' ? '' : ' <span class="err">(invitation failed; contact the teacher)</span>')
+            . ($t['repo_url'] === null ? '<span class="muted">being created</span>'
+                : '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
+                . ($t['invite_status'] === 'invited' ? '' : ' <span class="err">(invitation failed; contact the teacher)</span>'))
             . '</td></tr>';
     }
     echo '</table><p class="muted">Not seeing a repo on GitHub? Accept the invitation at '

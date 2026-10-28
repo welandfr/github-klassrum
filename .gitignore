@@ -1,2 +1,5 @@
 config/.env
 config/settings.php
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

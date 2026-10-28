@@ -81,7 +81,7 @@ function gh_token(string $org): string
 /** Drops all cached installation tokens, e.g. after the app credentials change. */
 function gh_forget_tokens(): void
 {
-    q("DELETE FROM classroom_settings WHERE k LIKE 'gh\\_token%'");
+    q("DELETE FROM settings WHERE k GLOB 'gh_token*'");
     $cache = &settings_cache();
     $cache = array_filter($cache, fn($k) => !str_starts_with((string) $k, 'gh_token'), ARRAY_FILTER_USE_KEY);
 }

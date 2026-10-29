@@ -189,6 +189,19 @@ function check_csrf(): void
     }
 }
 
+/** A small button that opens a confirmation dialog holding the actual form; $extra is HTML added to the dialog. */
+function confirm_button(string $action, array $fields, string $label, string $confirm, string $extra = ''): string
+{
+    $hidden = '';
+    foreach (['action' => $action] + $fields as $k => $v) {
+        $hidden .= '<input type="hidden" name="' . h($k) . '" value="' . h((string) $v) . '">';
+    }
+    return '<button type="button" class="small danger" onclick="this.nextElementSibling.showModal()">' . h($label) . '</button>'
+        . '<dialog><form method="post">' . csrf_field() . $hidden . '<p>' . h($confirm) . '</p>' . $extra
+        . '<p><button type="button" class="secondary" onclick="this.closest(\'dialog\').close()">Cancel</button> '
+        . '<button class="danger">' . h(ucfirst($label)) . '</button></p></form></dialog>';
+}
+
 function flash(string $type, string $msg): void
 {
     $_SESSION['flash'][] = [$type, $msg];

@@ -214,14 +214,6 @@ if ($a) {
             echo '<p class="err">Could not compare with GitHub: ' . h($e->getMessage()) . '</p>';
         }
 
-        // A button that opens a confirmation dialog holding the actual form; $extra is HTML added to the dialog.
-        $button = fn(string $action, array $fields, string $label, string $confirm, string $extra = '') =>
-            '<button type="button" class="small danger" onclick="this.nextElementSibling.showModal()">' . h($label) . '</button>'
-            . '<dialog><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="' . $action . '">'
-            . implode('', array_map(fn($k, $v) => '<input type="hidden" name="' . $k . '" value="' . h((string) $v) . '">', array_keys($fields), $fields))
-            . '<p>' . h($confirm) . '</p>' . $extra
-            . '<p><button type="button" class="secondary" onclick="this.closest(\'dialog\').close()">Cancel</button> '
-            . '<button class="danger">' . h(ucfirst($label)) . '</button></p></form></dialog>';
         echo '<table><tr><th>Team</th><th>Repository</th><th>Members</th><th></th></tr>';
         foreach ($teams as $t) {
             $tm = team_members((int) $t['id']);
@@ -232,7 +224,7 @@ if ($a) {
                 : '';
             $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
                 . ($m['invite_status'] === 'failed' ? ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>' : '')
-                . ' ' . $button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
+                . ' ' . confirm_button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
                     "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too.", $deleteRepo),
                 $tm);
             echo '<tr><td>' . h($t['name']) . '</td><td>'
@@ -242,7 +234,7 @@ if ($a) {
                             . '<input type="hidden" name="action" value="create_repo"><input type="hidden" name="team_id" value="' . $t['id'] . '">'
                             . '<button class="small">Create repo</button></form>')) . '</td>'
                 . '<td>' . implode('<br>', $members) . '</td><td>'
-                . $button('delete_team', ['team_id' => $t['id']], 'Delete team',
+                . confirm_button('delete_team', ['team_id' => $t['id']], 'Delete team',
                     "Delete team {$t['name']} from the app? Its members can then create or join another team. The repo stays on GitHub.")
                 . '</td></tr>';
         }

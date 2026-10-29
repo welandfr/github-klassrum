@@ -7,7 +7,7 @@ if (!schema_installed()) {
 }
 
 $rows = q('SELECT a.*, COUNT(DISTINCT t.id) AS teams, COUNT(m.sso_user) AS students,
-                  SUM(m.invite_status <> \'invited\') AS failed
+                  SUM(m.invite_status = \'failed\') AS failed
            FROM assignments a LEFT JOIN teams t ON t.assignment_id = a.id LEFT JOIN team_members m ON m.team_id = t.id
            GROUP BY a.id ORDER BY a.org, a.created_at DESC')->fetchAll();
 

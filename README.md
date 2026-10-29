@@ -1,6 +1,6 @@
 # Klassrum
 
-A minimal replacement for GitHub Classroom's repo provisioning. Students open an assignment's join link, connect their GitHub account, and either create a team or join an existing one. Creating a team generates a **private** repo in the assignment's GitHub org (one org per student group) from the assignment's template repo, and each team member gets a push-access invitation. After that, everything is managed on GitHub.
+A minimal replacement for GitHub Classroom's repo provisioning. Students open an assignment's join link, connect their GitHub account, and either create a team or join an existing one. Once the team is complete, the app generates a **private** repo in the assignment's GitHub org (one org per student group) from the assignment's template repo, and each team member gets a push-access invitation. After that, everything is managed on GitHub.
 
 Requires PHP 8.1+ with `pdo_sqlite` (SQLite 3.37+), `curl` and `openssl`, and SSO that sets `$_SERVER['REMOTE_USER']`. Data is stored in a single SQLite file. It has no other dependencies.
 
@@ -51,8 +51,8 @@ On the **Admin → New assignment** page:
 
 - **GitHub organization**: one of the orgs the app is installed on. It can't be changed once teams exist.
 - **Template**: a repo marked as a template (repo *Settings → Template repository*), given as `owner/repo` or its URL. It can be any public template, or a private one in the chosen org.
-- **Slug**: repo name prefix, unique within the org. Repos are named `<slug>-<github-login of team creator>`, with `-2`, `-3`, … appended if the name is taken.
-- **Max team size**: use 1 for individual work.
+- **Slug**: repo name prefix, unique within the org. Repos are named after the members' SSO usernames in join order, `<slug>-<user1>-<user2>…`, with `-2`, `-3`, … appended if the name is taken.
+- **Max team size**: use 1 for individual work; the repo is then created right away. For larger teams, the repo is created when the team is full, or earlier when any member clicks **Our team is ready – create the repository** (or the admin clicks **Create repo**). Students can still join a team with a repo if it isn't full; they are invited, but the repo name doesn't change.
 - **Open**: untick to stop new teams and joins.
 
 Share the join link it shows. The assignment page lists teams, repos and members, and has a **Retry failed invitations** button. A typical cause of failed invitations is GitHub not having the repo ready yet.
@@ -82,7 +82,7 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 
 - Students must accept the GitHub invitation (`<repo-url>/invitations`) before the repo is visible to them.
 - Each student can be in one team per assignment. Changes made on GitHub (removed collaborators, deleted or renamed repos) show up on the assignment page; see Assignments.
-- Creating a team reserves it in the database, then creates the repo on GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If the request dies halfway, the team is removed after 10 minutes so the student can try again; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).
+- Creating a repo marks the team in the database first, then calls GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If it fails, the team goes back to waiting and can try again. If the request dies halfway, that happens after 10 minutes; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).
 - Back up the database with `sqlite3 classroom.sqlite ".backup backup.sqlite"` rather than copying the file while the app runs.
 - A student who re-links a different GitHub account keeps their existing memberships. Invitations already sent stay with the old account.
 

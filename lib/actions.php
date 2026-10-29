@@ -6,7 +6,7 @@ class UserError extends RuntimeException
 {
 }
 
-/** A team whose repo still isn't created after this long was abandoned mid-creation. */
+/** A repo creation that hasn't finished after this long was abandoned (e.g. the request was killed). */
 const STALE_TEAM_MINUTES = 10;
 
 function linked_user(string $sso): ?array
@@ -26,102 +26,63 @@ function team_members(int $teamId): array
               WHERE m.team_id = ? ORDER BY m.joined_at', [$teamId])->fetchAll();
 }
 
-function repo_name_for(string $slug, string $login): string
+/** Repo name from the assignment slug and the members' SSO usernames, e.g. "lab1-alice-bob". */
+function repo_name_for(string $slug, array $ssoUsers): string
 {
-    return strtolower(preg_replace('/[^A-Za-z0-9._-]+/', '-', "$slug-$login"));
+    $name = strtolower(trim(preg_replace('/[^A-Za-z0-9._-]+/', '-', $slug . '-' . implode('-', $ssoUsers)), '-.'));
+    return rtrim(substr($name, 0, 90), '-.');  // GitHub allows 100; leaves room for a -2 suffix
 }
 
 /**
- * Removes teams whose repo creation never finished (e.g. the request was killed), so their
- * members can try again. A repo GitHub did create for one is left there; see README.
+ * Frees teams whose repo creation never finished (e.g. the request was killed), so they can try
+ * again. A repo GitHub did create for one is left there; see README.
  */
-function delete_stale_teams(): void
+function reset_stale_creations(): void
 {
-    q("DELETE FROM teams WHERE repo_url IS NULL AND created_at < datetime('now', ?)",
-        ['-' . STALE_TEAM_MINUTES . ' minutes']);
+    q("UPDATE teams SET repo_name = NULL, creating_since = NULL
+       WHERE repo_url IS NULL AND creating_since < datetime('now', ?)", ['-' . STALE_TEAM_MINUTES . ' minutes']);
 }
 
 /**
- * Creates a team with the student as its first member, plus its repo from the template.
- * The team is reserved first in a short transaction, so the unique keys block double
- * submissions; it stays pending (repo_url NULL, hidden from the join list) while GitHub
- * creates the repo, and is deleted again if that fails.
+ * Creates a team with the student as its first member. The repo is created once the team is
+ * full (right away for individual assignments), or earlier when a member asks for it.
  */
 function create_team(array $a, array $user, string $teamName): void
 {
-    $teamName = trim($teamName) === '' ? $user['github_login'] : trim($teamName);
+    $teamName = trim($teamName) === '' ? $user['sso_user'] : trim($teamName);
     if (strlen($teamName) > 100) {
         throw new UserError('Team name is too long.');
     }
-    $org = $a['org'];
-    $base = repo_name_for($a['slug'], $user['github_login']);
-    ignore_user_abort(true);  // finish, or clean up, even if the student closes the page
-    gh_token($org);
-    delete_stale_teams();
-
-    $teamId = tx(function () use ($a, $user, $teamName, $org, $base): int {
+    $teamId = tx(function () use ($a, $user, $teamName): int {
         if (my_team((int) $a['id'], $user['sso_user'])) {
             throw new UserError('You are already in a team for this assignment.');
         }
         if (q('SELECT 1 FROM teams WHERE assignment_id = ? AND name = ?', [$a['id'], $teamName])->fetch()) {
             throw new UserError('A team with that name already exists.');
         }
-        // Placeholder repo name until one is reserved below.
-        q('INSERT INTO teams (assignment_id, name, org, repo_name, created_by) VALUES (?, ?, ?, ?, ?)',
-            [$a['id'], $teamName, $org, $base . '-pending-' . bin2hex(random_bytes(4)), $user['sso_user']]);
+        q('INSERT INTO teams (assignment_id, name, org, created_by) VALUES (?, ?, ?, ?)',
+            [$a['id'], $teamName, $a['org'], $user['sso_user']]);
         $teamId = (int) db()->lastInsertId();
         q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
             [$teamId, $a['id'], $user['sso_user']]);
         return $teamId;
     });
-
-    // No transaction from here: GitHub calls take seconds, and SQLite allows one writer at a time.
-    try {
-        // Try base, base-2, base-3, ...: reserve each name here first (the unique key settles
-        // races between students), then skip names that GitHub reports as taken.
-        $repo = null;
-        for ($i = 1; $repo === null; $i++) {
-            if ($i > 20) {
-                throw new RuntimeException("No free repository name found for $base");
-            }
-            $name = $i === 1 ? $base : "$base-$i";
-            try {
-                q('UPDATE teams SET repo_name = ? WHERE id = ?', [$name, $teamId]);
-            } catch (PDOException $e) {
-                if (is_duplicate_key($e)) {
-                    continue;
-                }
-                throw $e;
-            }
-            [$s, $body] = gh($org, 'POST', '/repos/' . rawurlencode($a['template_owner']) . '/' . rawurlencode($a['template_repo']) . '/generate', [
-                'owner' => $org,
-                'name' => $name,
-                'private' => true,
-            ]);
-            if ($s === 201) {
-                $repo = $body;
-            } elseif (!($s === 422 && str_contains(json_encode($body), 'already exists'))) {
-                throw gh_error('Could not create the repository', $s, $body);
-            }
-        }
-        q('UPDATE teams SET repo_name = ?, repo_url = ? WHERE id = ?', [$repo['name'], $repo['html_url'], $teamId]);
-    } catch (Throwable $e) {
-        q('DELETE FROM teams WHERE id = ?', [$teamId]);  // the membership goes with it (ON DELETE CASCADE)
-        throw $e;
+    if ((int) $a['max_team_size'] <= 1) {
+        create_repo($teamId);
     }
-    invite_member($teamId, $user['sso_user']);
 }
 
 function join_team(array $a, array $user, int $teamId): void
 {
+    reset_stale_creations();
     // The write lock taken by tx() keeps concurrent joins from exceeding the size limit.
-    tx(function () use ($a, $user, $teamId): void {
+    [$team, $count] = tx(function () use ($a, $user, $teamId): array {
         $team = q('SELECT * FROM teams WHERE id = ? AND assignment_id = ?', [$teamId, $a['id']])->fetch();
         if (!$team) {
             throw new UserError('That team does not exist.');
         }
-        if ($team['repo_url'] === null) {
-            throw new UserError('That team\'s repository is still being created. Try again in a moment.');
+        if ($team['repo_url'] === null && $team['creating_since'] !== null) {
+            throw new UserError('That team\'s repository is being created. Try again in a moment.');
         }
         $count = (int) q('SELECT COUNT(*) FROM team_members WHERE team_id = ?', [$teamId])->fetchColumn();
         if ($count >= (int) $a['max_team_size']) {
@@ -136,8 +97,87 @@ function join_team(array $a, array $user, int $teamId): void
             }
             throw $e;
         }
+        return [$team, $count + 1];
     });
-    invite_member($teamId, $user['sso_user']);
+    if ($team['repo_url'] !== null) {
+        invite_member($teamId, $user['sso_user']);  // joined after the repo was created
+    } elseif ($count >= (int) $a['max_team_size']) {
+        create_repo($teamId);  // the team is now full
+    }
+}
+
+/**
+ * Creates the team's repo from the template, named after the current members, and invites
+ * them. The team is marked as being created in a short transaction first, so a double click
+ * or two members at once can't create two repos; the GitHub calls run outside any transaction,
+ * since they take seconds and SQLite allows one writer at a time. On failure the team goes
+ * back to waiting, so it can try again.
+ */
+function create_repo(int $teamId): void
+{
+    ignore_user_abort(true);  // finish, or clean up, even if the student closes the page
+    reset_stale_creations();
+    $t = tx(function () use ($teamId): array {
+        $t = q('SELECT t.*, a.slug, a.template_owner, a.template_repo FROM teams t
+                JOIN assignments a ON a.id = t.assignment_id WHERE t.id = ?', [$teamId])->fetch();
+        if (!$t) {
+            throw new UserError('That team does not exist.');
+        }
+        if ($t['repo_url'] !== null) {
+            throw new UserError('The repository has already been created.');
+        }
+        if ($t['creating_since'] !== null) {
+            throw new UserError('The repository is already being created. Reload the page in a moment.');
+        }
+        q('UPDATE teams SET creating_since = CURRENT_TIMESTAMP WHERE id = ?', [$teamId]);
+        return $t;
+    });
+    $org = $t['org'];
+    $base = repo_name_for($t['slug'], array_column(team_members($teamId), 'sso_user'));
+    try {
+        // Try base, base-2, base-3, ...: reserve each name here first (the unique key settles
+        // races between teams), then skip names that GitHub reports as taken.
+        $repo = null;
+        for ($i = 1; $repo === null; $i++) {
+            if ($i > 20) {
+                throw new RuntimeException("No free repository name found for $base");
+            }
+            $name = $i === 1 ? $base : "$base-$i";
+            try {
+                q('UPDATE teams SET repo_name = ? WHERE id = ?', [$name, $teamId]);
+            } catch (PDOException $e) {
+                if (is_duplicate_key($e)) {
+                    continue;
+                }
+                throw $e;
+            }
+            [$s, $body] = gh($org, 'POST', '/repos/' . rawurlencode($t['template_owner']) . '/' . rawurlencode($t['template_repo']) . '/generate', [
+                'owner' => $org,
+                'name' => $name,
+                'private' => true,
+            ]);
+            if ($s === 201) {
+                $repo = $body;
+            } elseif (!($s === 422 && str_contains(json_encode($body), 'already exists'))) {
+                throw gh_error('Could not create the repository', $s, $body);
+            }
+        }
+        q('UPDATE teams SET repo_name = ?, repo_url = ?, creating_since = NULL WHERE id = ?',
+            [$repo['name'], $repo['html_url'], $teamId]);
+    } catch (Throwable $e) {
+        q('UPDATE teams SET repo_name = NULL, creating_since = NULL WHERE id = ?', [$teamId]);
+        if ($e instanceof UserError || $e instanceof PDOException || !$e instanceof RuntimeException) {
+            throw $e;
+        }
+        error_log('classroom: ' . $e);
+        throw new UserError($e->getMessage() . '. Try again, or contact the teacher if it keeps failing.');
+    }
+    // Read after repo_url is set, so a member who joined meanwhile is invited here or by join_team.
+    foreach (team_members($teamId) as $m) {
+        if ($m['invite_status'] !== 'invited') {
+            invite_member($teamId, $m['sso_user']);
+        }
+    }
 }
 
 /**

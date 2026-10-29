@@ -99,6 +99,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('err', "Removing them on GitHub failed; check the repo's collaborators by hand. $error");
         }
         redirect('admin/assignment.php?id=' . $a['id']);
+    } elseif ($action === 'create_repo' && $a) {
+        $teamId = (int) $_POST['team_id'];
+        try {
+            if (!q('SELECT 1 FROM teams WHERE id = ? AND assignment_id = ?', [$teamId, $a['id']])->fetch()) {
+                throw new UserError('That team does not exist.');
+            }
+            create_repo($teamId);
+            flash('ok', 'Repository created and members invited.');
+        } catch (UserError $e) {
+            flash('err', $e->getMessage());
+        }
+        redirect('admin/assignment.php?id=' . $a['id']);
     } elseif ($action === 'delete_team' && $a) {
         q('DELETE FROM teams WHERE id = ? AND assignment_id = ?', [(int) $_POST['team_id'], $a['id']]);
         flash('ok', 'Team removed from the app. Its repo is still on GitHub.');
@@ -219,12 +231,16 @@ if ($a) {
                     . ' on GitHub as well, and the team</label><p class="muted">This can\'t be undone.</p>'
                 : '';
             $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
-                . ($m['invite_status'] === 'invited' ? '' : ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>')
+                . ($m['invite_status'] === 'failed' ? ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>' : '')
                 . ' ' . $button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
                     "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too.", $deleteRepo),
                 $tm);
             echo '<tr><td>' . h($t['name']) . '</td><td>'
-                . ($t['repo_url'] === null ? '<span class="muted">being created</span>' : '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>') . '</td>'
+                . ($t['repo_url'] !== null ? '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
+                    : ($t['creating_since'] !== null ? '<span class="muted">being created</span>'
+                        : '<span class="muted">waiting for members</span> <form method="post" style="display:inline">' . csrf_field()
+                            . '<input type="hidden" name="action" value="create_repo"><input type="hidden" name="team_id" value="' . $t['id'] . '">'
+                            . '<button class="small">Create repo</button></form>')) . '</td>'
                 . '<td>' . implode('<br>', $members) . '</td><td>'
                 . $button('delete_team', ['team_id' => $t['id']], 'Delete team',
                     "Delete team {$t['name']} from the app? Its members can then create or join another team. The repo stays on GitHub.")

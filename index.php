@@ -22,7 +22,7 @@ if (!$me) {
     exit;
 }
 
-$teams = q('SELECT a.title, t.name, t.repo_name, t.repo_url, m.invite_status
+$teams = q('SELECT a.title, a.invite_code, t.name, t.repo_name, t.repo_url, t.creating_since, m.invite_status
             FROM team_members m JOIN teams t ON t.id = m.team_id JOIN assignments a ON a.id = t.assignment_id
             WHERE m.sso_user = ? ORDER BY t.created_at DESC', [$sso])->fetchAll();
 if (!$teams) {
@@ -31,9 +31,10 @@ if (!$teams) {
     echo '<table><tr><th>Assignment</th><th>Team</th><th>Repository</th></tr>';
     foreach ($teams as $t) {
         echo '<tr><td>' . h($t['title']) . '</td><td>' . h($t['name']) . '</td><td>'
-            . ($t['repo_url'] === null ? '<span class="muted">being created</span>'
-                : '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
-                . ($t['invite_status'] === 'invited' ? '' : ' <span class="err">(invitation failed; contact the teacher)</span>'))
+            . ($t['repo_url'] !== null ? '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
+                . ($t['invite_status'] === 'failed' ? ' <span class="err">(invitation failed; contact the teacher)</span>' : '')
+                : '<span class="muted">' . ($t['creating_since'] !== null ? 'being created' : 'not created yet') . '</span> · '
+                    . '<a href="' . h(url('join.php?code=' . $t['invite_code'])) . '">team page</a>')
             . '</td></tr>';
     }
     echo '</table><p class="muted">Not seeing a repo on GitHub? Accept the invitation at '

@@ -140,6 +140,19 @@ function migrate(PDO $pdo): array
 {
     $pending = pending_migrations($pdo);
     $files = migration_files();
+    // Table rebuilds (SQLite's way to change a column) must not cascade deletes, so foreign keys
+    // are off while migrating and checked before each commit. The pragma is ignored inside a transaction.
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    try {
+        migrate_files($pdo, $pending, $files);
+    } finally {
+        $pdo->exec('PRAGMA foreign_keys = ON');
+    }
+    return $pending;
+}
+
+function migrate_files(PDO $pdo, array $pending, array $files): void
+{
     foreach ($pending as $name) {
         $pdo->exec('BEGIN IMMEDIATE');
         try {
@@ -153,6 +166,9 @@ function migrate(PDO $pdo): array
                     $pdo->exec($sql);
                 }
             }
+            if ($pdo->query('PRAGMA foreign_key_check')->fetch()) {
+                throw new PDOException('it leaves rows that violate a foreign key');
+            }
             $pdo->prepare('INSERT INTO schema_migrations (name) VALUES (?)')->execute([$name]);
             $pdo->exec('COMMIT');
         } catch (PDOException $e) {
@@ -160,7 +176,6 @@ function migrate(PDO $pdo): array
             throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
         }
     }
-    return $pending;
 }
 
 /** Drops every table, then re-runs all migrations. For the dev server only. */

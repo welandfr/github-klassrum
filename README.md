@@ -1,4 +1,4 @@
-# Mini-Classroom
+# Klassrum
 
 A minimal replacement for GitHub Classroom's repo provisioning. Students open an assignment's join link, connect their GitHub account, and either create a team or join an existing one. Creating a team generates a **private** repo in the assignment's GitHub org (one org per student group) from the assignment's template repo, and each team member gets a push-access invitation. After that, everything is managed on GitHub.
 
@@ -43,7 +43,7 @@ For each group org:
 Open `https://<host>/~<you>/classroom/admin/settings.php`:
 
 1. Check that the database shows its path without errors, and click **Run pending migrations** to create the tables.
-2. Enter the Client ID, client secret and private key, then click **Test GitHub connection**. It lists the orgs the app is installed on.
+2. Enter the Client ID, client secret and private key, then click **Save and test connection**. It lists the orgs the app is installed on.
 
 ## 5. Assignments
 
@@ -81,3 +81,7 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 - Creating a team reserves it in the database, then creates the repo on GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If the request dies halfway, the team is removed after 10 minutes so the student can try again; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).
 - Back up the database with `sqlite3 classroom.sqlite ".backup backup.sqlite"` rather than copying the file while the app runs.
 - A student who re-links a different GitHub account keeps their existing memberships. Invitations already sent stay with the old account.
+
+## License
+
+Copyright (C) 2026 Fredrik Welander. Klassrum is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).

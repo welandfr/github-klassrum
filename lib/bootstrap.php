@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 define('APP_DIR', dirname(__DIR__));
+const APP_NAME = 'Klassrum';
+const APP_REPO = 'https://github.com/welandfr/github-klassrum';
 // PHP's built-in server (local dev, see dev/router.php) runs without TLS.
 define('IS_DEV_SERVER', PHP_SAPI === 'cli-server');
 // Prefer a config dir outside the web root (~/classroom-config) when it exists.
@@ -13,6 +15,14 @@ const CSS = <<<'CSS'
 :root{--fg:#1f2328;--bg:#fff;--muted:#656d76;--line:#d0d7de;--accent:#0969da;--ok:#1a7f37;--err:#cf222e}
 @media (prefers-color-scheme:dark){:root{--fg:#e6edf3;--bg:#0d1117;--muted:#8d96a0;--line:#30363d;--accent:#4493f8;--ok:#3fb950;--err:#f85149}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+header{border-bottom:1px solid var(--line)}
+header>div{position:relative;max-width:860px;margin:0 auto;padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header .name{font-weight:700;color:var(--fg);text-decoration:none}
+header details{display:inline}
+header summary{display:inline;list-style:none;font-weight:400;margin:0;color:var(--accent)}
+header summary::-webkit-details-marker{display:none}
+header .about{position:absolute;right:16px;top:100%;z-index:1;width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:12px 16px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px}
+header .about p{margin:0 0 8px}
 main{max-width:860px;margin:0 auto;padding:24px 16px}
 a{color:var(--accent)}
 table{border-collapse:collapse;width:100%;margin:12px 0}
@@ -182,8 +192,18 @@ function page_start(string $title): void
 {
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        . '<title>' . h($title) . '</title><style>' . CSS . '</style></head><body><main>'
-        . '<h1>' . h($title) . '</h1>';
+        . '<title>' . h($title) . ' · ' . APP_NAME . '</title><style>' . CSS . '</style></head><body>'
+        . '<header><div><a class="name" href="' . h(url()) . '">' . APP_NAME . '</a>';
+    // Not sso_user(): that exits, and this also renders error pages.
+    $user = $_SERVER['REMOTE_USER'] ?? $_SERVER['REDIRECT_REMOTE_USER'] ?? '';
+    echo '<span class="muted">' . ($user !== '' ? h($user) . ' · ' : '')
+        . ($user !== '' && is_admin() ? '<a href="' . h(url('admin/')) . '">Admin</a> · ' : '')
+        . '<details><summary>About</summary><div class="about">'
+        . '<p><b>' . APP_NAME . '</b> creates private GitHub repositories for student teams from assignment templates.</p>'
+        . '<p>By Fredrik Welander.</p>'
+        . '<p>Free software under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3</a> or later.</p>'
+        . '<p>Source: <a href="' . APP_REPO . '">' . h(substr(APP_REPO, 8)) . '</a></p>'
+        . '</div></details></span></div></header><main><h1>' . h($title) . '</h1>';
     foreach ($_SESSION['flash'] ?? [] as [$type, $msg]) {
         echo '<p class="' . h($type) . '">' . h($msg) . '</p>';
     }

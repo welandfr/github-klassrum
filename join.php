@@ -37,7 +37,9 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 page_start($a['title']);
-echo '<p class="muted">Logged in as ' . h($sso) . ($me ? ' · GitHub: ' . h($me['github_login']) : '') . '</p>';
+if ($me) {
+    echo '<p class="muted">GitHub: ' . h($me['github_login']) . '</p>';
+}
 
 if (!$me) {
     echo '<p>First, connect your GitHub account so you can be given access to your repository.</p>'

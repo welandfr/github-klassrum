@@ -33,7 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('err', $e->getMessage());
         }
         redirect('admin/settings.php');
-    } elseif ($action === 'github' && $db) {
+    } elseif (($action === 'github' || $action === 'test') && $db) {
+        // Both buttons save first, so testing never discards what was typed into the form.
         set_setting('gh_client_id', trim((string) $_POST['gh_client_id']));
         foreach (['gh_client_secret', 'gh_private_key'] as $k) {
             if (trim((string) $_POST[$k]) !== '') {
@@ -42,8 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         gh_forget_tokens();  // force fresh tokens with the new settings
         flash('ok', 'GitHub settings saved.');
-        redirect('admin/settings.php');
-    } elseif ($action === 'test' && $db) {
+        if ($action === 'github') {
+            redirect('admin/settings.php');
+        }
         try {
             $orgs = gh_installed_orgs();
             if ($orgs) {
@@ -120,23 +122,24 @@ echo '<fieldset><legend>2. GitHub App</legend>'
     . '<li><b>Webhook:</b> uncheck <i>Active</i>.</li>'
     . '<li><b>Repository permissions:</b> Administration: Read and write · Contents: Read-only · Metadata: Read-only.</li>'
     . '<li><b>Organization permissions</b> (optional): Administration: Read-only, so assignment saves can check the org\'s base permission.</li>'
-    . '<li><b>Where can this app be installed:</b> Any account. It only acts on orgs where it is installed.</li></ul>'
+    . '<li><b>Where can this app be installed:</b> Any account. It only acts on orgs where it is installed. '
+    . '(To change it later: the app\'s <i>Advanced → Make public</i>.)</li></ul>'
     . '<p>After creating it, copy the <b>Client ID</b> into the form below, '
     . 'and use <i>Generate a new client secret</i> and <i>Generate a private key</i> for the other two fields.</p>'
     . '<p><b>Install the app</b> on each group\'s org (<i>Install App</i> in the app settings), with <i>All repositories</i>. '
-    . 'Installed orgs appear in the assignment form; <b>Test GitHub connection</b> lists them.</p>'
+    . 'Installed orgs appear in the assignment form; <b>Save and test connection</b> lists them.</p>'
     . '<p><b>In each group org</b>, under <i>Settings → Member privileges</i>:</p><ul>'
     . '<li><b>Base permissions:</b> No permission, so members can\'t see every student repo.</li>'
     . '<li><b>Repository creation:</b> disabled for members.</li>'
     . '<li><b>Repository invitations:</b> must allow inviting outside collaborators (students are invited that way).</li>'
     . '<li>Make teachers org <b>owners</b>; that gives them access to all repos.</li></ul>'
     . '</details>'
-    . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="github">'
+    . '<form method="post">' . csrf_field()
     . '<label>Client ID</label><input type="text" name="gh_client_id" value="' . h(setting('gh_client_id')) . '" required>'
     . '<label>Client secret</label><input type="password" name="gh_client_secret" placeholder="' . $secretSet('gh_client_secret') . '">'
     . '<label>Private key (.pem contents)</label><textarea name="gh_private_key" rows="4" placeholder="'
     . $secretSet('gh_private_key') . '"></textarea>'
-    . '<p><button>Save</button></p></form>'
-    . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="test">'
-    . '<button>Test GitHub connection</button></form></fieldset>';
+    . '<p class="muted">The secret and key are never shown again after saving; leave them empty to keep the saved ones.</p>'
+    . '<p><button name="action" value="github">Save</button> '
+    . '<button name="action" value="test">Save and test connection</button></p></form></fieldset>';
 page_end();

@@ -105,7 +105,22 @@ if ($orgLocked) {
     foreach ($orgs as $o) {
         $orgField .= '<option' . ($o === $f['org'] ? ' selected' : '') . '>' . h($o) . '</option>';
     }
-    $orgField .= '</select><p class="muted">Orgs the GitHub App is installed on. Install it on a new group\'s org to add it here.</p>';
+    $appUrl = gh_app_url();
+    $install = $appUrl
+        ? '<a href="' . h($appUrl . '/installations/new') . '">' . h($appUrl . '/installations/new') . '</a>'
+        : 'the app\'s page on GitHub (<i>Settings → Developer settings → GitHub Apps → Edit → Install App</i>)';
+    $orgField .= '</select><p class="muted">Orgs the GitHub App is installed on.</p>'
+        // Expanded while no org is available yet.
+        . '<details' . ($orgs ? '' : ' open') . '><summary>Adding a new group\'s org</summary><ol>'
+        . '<li>Open ' . $install . '.</li>'
+        . '<li>Choose the group\'s org. You must be an owner of it; otherwise GitHub only sends an install request to the owners. '
+        . 'If only the org that owns the app is offered, the app is private: in the app\'s settings, '
+        . '<i>Advanced → Make public</i>.</li>'
+        . '<li>Select <i>All repositories</i> and click <i>Install</i>.</li>'
+        . '<li>In the org\'s <i>Settings → Member privileges</i>, set <i>Base permissions</i> to No permission and disable repository creation for members '
+        . '(see the <a href="' . h(url('admin/settings.php')) . '">settings page</a> instructions).</li>'
+        . '<li>Reload this page (unsaved input in this form is lost); the org then appears in the list.</li>'
+        . '</ol></details>';
 }
 
 page_start($a ? $a['title'] : 'New assignment');

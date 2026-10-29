@@ -10,15 +10,10 @@ require_configured();
 $me = linked_user($sso);
 
 page_start('My assignment repos');
-echo '<p>Logged in as <b>' . h($sso) . '</b>';
 if ($me) {
-    echo ' · GitHub: <a href="https://github.com/' . h($me['github_login']) . '">' . h($me['github_login']) . '</a>'
-        . ' · <a href="oauth.php">re-link</a>';
+    echo '<p class="muted">GitHub: <a href="https://github.com/' . h($me['github_login']) . '">' . h($me['github_login']) . '</a>'
+        . ' · <a href="oauth.php">re-link</a></p>';
 }
-if (is_admin()) {
-    echo ' · <a href="admin/">Admin</a>';
-}
-echo '</p>';
 
 if (!$me) {
     echo '<p>Connect your GitHub account to get started.</p>'

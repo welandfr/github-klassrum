@@ -121,7 +121,7 @@ if (extension_loaded('curl')) {
     foreach (['https://api.github.com/zen', 'https://github.com/'] as $u) {
         $ch = curl_init($u);
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_NOBODY => true, CURLOPT_TIMEOUT => 8,
-            CURLOPT_USERAGENT => 'mini-classroom-check']);
+            CURLOPT_USERAGENT => 'klassrum-check']);
         $ok = curl_exec($ch) !== false;
         line($u, $ok ? 'HTTP ' . curl_getinfo($ch, CURLINFO_RESPONSE_CODE) : 'FAILED: ' . curl_error($ch));
     }

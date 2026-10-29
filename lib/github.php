@@ -5,7 +5,7 @@ declare(strict_types=1);
 function http_json(string $method, string $url, ?array $body, array $headers): array
 {
     $ch = curl_init($url);
-    $headers[] = 'User-Agent: mini-classroom';
+    $headers[] = 'User-Agent: klassrum';
     if ($body !== null) {
         $headers[] = 'Content-Type: application/json';
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
@@ -107,6 +107,17 @@ function gh_installed_orgs(): array
     }
     natcasesort($orgs);
     return array_values($orgs);
+}
+
+/** The app's public page, e.g. https://github.com/apps/my-classroom; null if GitHub can't be reached. */
+function gh_app_url(): ?string
+{
+    try {
+        [$s, $app] = gh_api('GET', '/app', null, gh_app_jwt());
+    } catch (RuntimeException) {
+        return null;
+    }
+    return $s === 200 ? $app['html_url'] : null;
 }
 
 /**

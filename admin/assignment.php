@@ -76,6 +76,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         [$ok, $failed] = retry_failed_invites((int) $a['id']);
         flash($failed ? 'err' : 'ok', "Retried invitations: $ok succeeded, $failed failed.");
         redirect('admin/assignment.php?id=' . $a['id']);
+    } elseif ($action === 'remove_member' && $a) {
+        $teamId = (int) $_POST['team_id'];
+        $sso = (string) $_POST['sso_user'];
+        $error = q('SELECT 1 FROM teams WHERE id = ? AND assignment_id = ?', [$teamId, $a['id']])->fetch()
+            ? remove_member($teamId, $sso) : null;
+        flash('ok', "Removed $sso from the team.");
+        if ($error !== null) {
+            flash('err', "Removing them on GitHub failed; check the repo's collaborators by hand. $error");
+        }
+        redirect('admin/assignment.php?id=' . $a['id']);
+    } elseif ($action === 'delete_team' && $a) {
+        q('DELETE FROM teams WHERE id = ? AND assignment_id = ?', [(int) $_POST['team_id'], $a['id']]);
+        flash('ok', 'Team removed from the app. Its repo is still on GitHub.');
+        redirect('admin/assignment.php?id=' . $a['id']);
+    } elseif ($action === 'sync' && $a) {
+        // Recomputed rather than taken from the form, so only what is still true gets applied.
+        try {
+            $diffs = github_differences($a);
+            apply_github_differences($diffs);
+            flash('ok', 'Updated from GitHub: ' . count($diffs) . ' change(s).');
+        } catch (RuntimeException $e) {
+            flash('err', 'Could not read GitHub, nothing changed: ' . $e->getMessage());
+        }
+        redirect('admin/assignment.php?id=' . $a['id']);
     }
 }
 
@@ -148,14 +172,40 @@ if ($a) {
     $teams = q('SELECT * FROM teams WHERE assignment_id = ? ORDER BY name', [$a['id']])->fetchAll();
     echo '<h2>Teams (' . count($teams) . ')</h2>';
     if ($teams) {
-        echo '<table><tr><th>Team</th><th>Repository</th><th>Members</th></tr>';
+        // Read-only check on every page view; changes are only applied with the button.
+        try {
+            $diffs = github_differences($a);
+            if ($diffs) {
+                echo '<fieldset><legend>Changed on GitHub</legend><ul>';
+                foreach ($diffs as $d) {
+                    echo '<li>' . h($d['text']) . '</li>';
+                }
+                echo '</ul><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="sync">'
+                    . '<button>Update the app to match</button></form></fieldset>';
+            } else {
+                echo '<p class="muted">In sync with GitHub.</p>';
+            }
+        } catch (RuntimeException $e) {
+            echo '<p class="err">Could not compare with GitHub: ' . h($e->getMessage()) . '</p>';
+        }
+
+        $button = fn(string $action, array $fields, string $label, string $confirm) => '<form method="post" class="inline" onsubmit="return confirm('
+            . h(json_encode($confirm)) . ')">' . csrf_field() . '<input type="hidden" name="action" value="' . $action . '">'
+            . implode('', array_map(fn($k, $v) => '<input type="hidden" name="' . $k . '" value="' . h((string) $v) . '">', array_keys($fields), $fields))
+            . '<button class="small danger">' . $label . '</button></form>';
+        echo '<table><tr><th>Team</th><th>Repository</th><th>Members</th><th></th></tr>';
         foreach ($teams as $t) {
             $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
-                . ($m['invite_status'] === 'invited' ? '' : ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>'),
+                . ($m['invite_status'] === 'invited' ? '' : ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>')
+                . ' ' . $button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
+                    "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too."),
                 team_members((int) $t['id']));
             echo '<tr><td>' . h($t['name']) . '</td><td>'
                 . ($t['repo_url'] === null ? '<span class="muted">being created</span>' : '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>') . '</td>'
-                . '<td>' . implode('<br>', $members) . '</td></tr>';
+                . '<td>' . implode('<br>', $members) . '</td><td>'
+                . $button('delete_team', ['team_id' => $t['id']], 'Delete team',
+                    "Delete team {$t['name']} from the app? Its members can then create or join another team. The repo stays on GitHub.")
+                . '</td></tr>';
         }
         echo '</table><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="retry">'
             . '<button>Retry failed invitations</button></form>';

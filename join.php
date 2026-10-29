@@ -102,7 +102,7 @@ if ($size > 1) {
     $teams = q('SELECT t.id, t.name,
                        (SELECT COUNT(*) FROM team_members m WHERE m.team_id = t.id) AS n,
                        (SELECT group_concat(member, \', \') FROM (
-                           SELECT COALESCE(u.github_login, m.sso_user) AS member FROM team_members m
+                           SELECT m.sso_user || COALESCE(\' (\' || u.github_login || \')\', \'\') AS member FROM team_members m
                            LEFT JOIN users u ON u.sso_user = m.sso_user WHERE m.team_id = t.id ORDER BY m.joined_at)) AS members
                 FROM teams t WHERE t.assignment_id = ? AND t.repo_url IS NOT NULL ORDER BY t.name', [$a['id']])->fetchAll();
     echo '<h2>Or join an existing team</h2>';

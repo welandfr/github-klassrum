@@ -57,6 +57,10 @@ On the **Admin → New assignment** page:
 
 Share the join link it shows. The assignment page lists teams, repos and members, and has a **Retry failed invitations** button. A typical cause of failed invitations is GitHub not having the repo ready yet.
 
+- **remove** (next to a member) removes the student from the team, and from the repo on GitHub, including a pending invitation. They can then create or join another team.
+- **Delete team** removes the team from the app only. The repo stays on GitHub, and the members can create or join another team.
+- **Changed on GitHub**: each time the page opens, it compares the teams with GitHub (read-only) and lists repos that were deleted, renamed or moved, members who no longer have access, and expired invitations (GitHub invitations expire after 7 days). **Update the app to match** applies them; an expired invitation becomes "failed", so **Retry failed invitations** sends a new one.
+
 ## Database migrations
 
 Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `schema_migrations` table. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
@@ -77,7 +81,7 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 ## Notes
 
 - Students must accept the GitHub invitation (`<repo-url>/invitations`) before the repo is visible to them.
-- Each student can be in one team per assignment. Changes made later on GitHub (removing members, renaming repos) are not tracked here.
+- Each student can be in one team per assignment. Changes made on GitHub (removed collaborators, deleted or renamed repos) show up on the assignment page; see Assignments.
 - Creating a team reserves it in the database, then creates the repo on GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If the request dies halfway, the team is removed after 10 minutes so the student can try again; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).
 - Back up the database with `sqlite3 classroom.sqlite ".backup backup.sqlite"` rather than copying the file while the app runs.
 - A student who re-links a different GitHub account keeps their existing memberships. Invitations already sent stay with the old account.

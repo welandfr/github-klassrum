@@ -177,6 +177,135 @@ function invite_member(int $teamId, string $sso): bool
     return $error === null;
 }
 
+/**
+ * Removes a student from a team: on GitHub (collaborator access and any pending invitation)
+ * and in the app. The app side always happens, so the student is free to join another team;
+ * returns the GitHub error, if any, for the admin to fix by hand.
+ */
+function remove_member(int $teamId, string $sso): ?string
+{
+    $row = q('SELECT t.org, t.repo_name, t.repo_url, u.github_id, u.github_login, m.invite_status
+              FROM team_members m JOIN teams t ON t.id = m.team_id LEFT JOIN users u ON u.sso_user = m.sso_user
+              WHERE m.team_id = ? AND m.sso_user = ?', [$teamId, $sso])->fetch();
+    if (!$row) {
+        return null;
+    }
+    $error = null;
+    if ($row['repo_url'] !== null && $row['github_login'] !== null && $row['invite_status'] === 'invited') {
+        $repo = '/repos/' . rawurlencode($row['org']) . '/' . rawurlencode($row['repo_name']);
+        try {
+            [$s, $body] = gh($row['org'], 'DELETE', "$repo/collaborators/" . rawurlencode($row['github_login']));
+            if ($s !== 204 && $s !== 404) {
+                throw gh_error('Could not remove the collaborator', $s, $body);
+            }
+            [$s, $invites] = gh($row['org'], 'GET', "$repo/invitations?per_page=100");
+            if ($s !== 200) {
+                throw gh_error('Could not list the invitations', $s, $invites);
+            }
+            foreach ($invites as $inv) {
+                if (($inv['invitee']['id'] ?? null) === $row['github_id']) {
+                    [$s, $body] = gh($row['org'], 'DELETE', "$repo/invitations/{$inv['id']}");
+                    if ($s !== 204) {
+                        throw gh_error('Could not cancel the invitation', $s, $body);
+                    }
+                }
+            }
+        } catch (RuntimeException $e) {
+            $error = $e->getMessage();
+        }
+    }
+    q('DELETE FROM team_members WHERE team_id = ? AND sso_user = ?', [$teamId, $sso]);
+    return $error;
+}
+
+/** Removes a team and its memberships from the app only; its repo stays on GitHub. */
+function delete_team(int $teamId): void
+{
+    q('DELETE FROM teams WHERE id = ?', [$teamId]);
+}
+
+/**
+ * Compares the assignment's teams with GitHub, without changing anything. Finds deleted,
+ * moved and renamed repos, members no longer on their repo (neither collaborator nor
+ * invited), and expired invitations. Throws if GitHub can't be read, so a failed request
+ * never looks like a removal.
+ * @return list<array{type:string,team_id:int,sso_user?:string,repo_name?:string,repo_url?:string,text:string}>
+ */
+function github_differences(array $a): array
+{
+    $teams = q('SELECT * FROM teams WHERE assignment_id = ? AND repo_url IS NOT NULL ORDER BY name', [$a['id']])->fetchAll();
+    $paths = [];
+    foreach ($teams as $t) {
+        $repo = '/repos/' . rawurlencode($t['org']) . '/' . rawurlencode($t['repo_name']);
+        $paths["{$t['id']}:repo"] = $repo;
+        $paths["{$t['id']}:collab"] = "$repo/collaborators?affiliation=all&per_page=100";
+        $paths["{$t['id']}:inv"] = "$repo/invitations?per_page=100";
+    }
+    $res = $paths ? gh_get_many($a['org'], $paths) : [];
+
+    $diffs = [];
+    foreach ($teams as $t) {
+        $id = (int) $t['id'];
+        [$s, $repo] = $res["$id:repo"];
+        if ($s === 404) {
+            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} no longer exists: remove team {$t['name']}."];
+            continue;
+        }
+        if ($s !== 200) {
+            throw gh_error("Could not read repo {$t['repo_name']}", $s, $repo);
+        }
+        if (strcasecmp($repo['owner']['login'], $t['org']) !== 0) {
+            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} was moved to {$repo['full_name']}: remove team {$t['name']}."];
+            continue;
+        }
+        if ($repo['name'] !== $t['repo_name']) {
+            $diffs[] = ['type' => 'renamed', 'team_id' => $id, 'repo_name' => $repo['name'], 'repo_url' => $repo['html_url'],
+                'text' => "Repo {$t['repo_name']} was renamed to {$repo['name']}."];
+        }
+        foreach (['collab', 'inv'] as $k) {
+            if ($res["$id:$k"][0] !== 200) {
+                throw gh_error("Could not read the collaborators of {$t['repo_name']}", ...$res["$id:$k"]);
+            }
+        }
+        $collaborators = array_column($res["$id:collab"][1], 'id');
+        $expired = [];  // invitee id => invitation expired
+        foreach ($res["$id:inv"][1] as $inv) {
+            if (isset($inv['invitee']['id'])) {
+                $expired[$inv['invitee']['id']] = (bool) ($inv['expired'] ?? false);
+            }
+        }
+        foreach (team_members($id) as $m) {
+            $ghId = q('SELECT github_id FROM users WHERE sso_user = ?', [$m['sso_user']])->fetchColumn();
+            if ($m['invite_status'] !== 'invited' || $ghId === false || in_array($ghId, $collaborators, true)) {
+                continue;
+            }
+            $who = "{$m['sso_user']} ({$m['github_login']})";
+            if (!isset($expired[$ghId])) {
+                $diffs[] = ['type' => 'member_gone', 'team_id' => $id, 'sso_user' => $m['sso_user'],
+                    'text' => "$who no longer has access to {$repo['name']}: remove them from team {$t['name']}."];
+            } elseif ($expired[$ghId]) {
+                $diffs[] = ['type' => 'invite_expired', 'team_id' => $id, 'sso_user' => $m['sso_user'],
+                    'text' => "The invitation of $who to {$repo['name']} expired: mark it failed, so Retry sends a new one."];
+            }
+        }
+    }
+    return $diffs;
+}
+
+/** Applies github_differences() to the app's database. */
+function apply_github_differences(array $diffs): void
+{
+    foreach ($diffs as $d) {
+        match ($d['type']) {
+            'team_gone' => delete_team($d['team_id']),
+            'renamed' => q('UPDATE teams SET repo_name = ?, repo_url = ? WHERE id = ?', [$d['repo_name'], $d['repo_url'], $d['team_id']]),
+            'member_gone' => q('DELETE FROM team_members WHERE team_id = ? AND sso_user = ?', [$d['team_id'], $d['sso_user']]),
+            'invite_expired' => q("UPDATE team_members SET invite_status = 'failed', invite_error = 'Invitation expired'
+                                   WHERE team_id = ? AND sso_user = ?", [$d['team_id'], $d['sso_user']]),
+        };
+    }
+}
+
 /** @return array{0:int,1:int} [succeeded, failed] */
 function retry_failed_invites(int $assignmentId): array
 {

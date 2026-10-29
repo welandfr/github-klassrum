@@ -4,6 +4,16 @@ declare(strict_types=1);
 /** @return array{0:int,1:mixed} [HTTP status, decoded JSON body] */
 function http_json(string $method, string $url, ?array $body, array $headers): array
 {
+    $ch = http_handle($method, $url, $body, $headers);
+    $raw = curl_exec($ch);
+    if ($raw === false) {
+        throw new RuntimeException('GitHub request failed: ' . curl_error($ch));
+    }
+    return [curl_getinfo($ch, CURLINFO_RESPONSE_CODE), $raw === '' ? null : json_decode($raw, true)];
+}
+
+function http_handle(string $method, string $url, ?array $body, array $headers): CurlHandle
+{
     $ch = curl_init($url);
     $headers[] = 'User-Agent: klassrum';
     if ($body !== null) {
@@ -18,20 +28,17 @@ function http_json(string $method, string $url, ?array $body, array $headers): a
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 30,
     ]);
-    $raw = curl_exec($ch);
-    if ($raw === false) {
-        throw new RuntimeException('GitHub request failed: ' . curl_error($ch));
-    }
-    return [curl_getinfo($ch, CURLINFO_RESPONSE_CODE), $raw === '' ? null : json_decode($raw, true)];
+    return $ch;
+}
+
+function gh_headers(string $token): array
+{
+    return ['Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28', 'Authorization: Bearer ' . $token];
 }
 
 function gh_api(string $method, string $path, ?array $body, string $token): array
 {
-    return http_json($method, 'https://api.github.com' . $path, $body, [
-        'Accept: application/vnd.github+json',
-        'X-GitHub-Api-Version: 2022-11-28',
-        'Authorization: Bearer ' . $token,
-    ]);
+    return http_json($method, 'https://api.github.com' . $path, $body, gh_headers($token));
 }
 
 function gh_error(string $what, int $status, mixed $body): RuntimeException
@@ -134,6 +141,41 @@ function check_org_base_permission(string $org): void
     } elseif ($perm !== 'none') {
         flash('err', "Warning: the base permission of $org is '$perm'. Set it to 'No permission' so students can't see each other's repos.");
     }
+}
+
+/**
+ * Several GETs as the app installation on the org, run in parallel (20 at a time, well under
+ * GitHub's concurrency limit). Redirects are followed, so renamed repos resolve.
+ * @param array<string,string> $paths key => API path
+ * @return array<string,array{0:int,1:mixed}> key => [HTTP status (0 on network error), decoded body]
+ */
+function gh_get_many(string $org, array $paths): array
+{
+    $headers = gh_headers(gh_token($org));
+    $results = [];
+    foreach (array_chunk($paths, 20, true) as $chunk) {
+        $mh = curl_multi_init();
+        $handles = [];
+        foreach ($chunk as $key => $path) {
+            $handles[$key] = $ch = http_handle('GET', 'https://api.github.com' . $path, null, $headers);
+            curl_setopt_array($ch, [CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3]);
+            curl_multi_add_handle($mh, $ch);
+        }
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh);
+            }
+        } while ($running);
+        foreach ($handles as $key => $ch) {
+            $raw = curl_multi_getcontent($ch);
+            $results[$key] = [curl_errno($ch) ? 0 : curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
+                $raw === '' || $raw === null ? null : json_decode($raw, true)];
+            curl_multi_remove_handle($mh, $ch);
+        }
+        curl_multi_close($mh);
+    }
+    return $results;
 }
 
 /** Calls the API as the app installation on the given org. */

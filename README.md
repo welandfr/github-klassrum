@@ -57,7 +57,7 @@ On the **Admin → New assignment** page:
 
 Share the join link it shows. The assignment page lists teams, repos and members, and has a **Retry failed invitations** button. A typical cause of failed invitations is GitHub not having the repo ready yet.
 
-- **remove** (next to a member) removes the student from the team, and from the repo on GitHub, including a pending invitation. They can then create or join another team.
+- **remove** (next to a member) removes the student from the team, and from the repo on GitHub, including a pending invitation. They can then create or join another team. For a team's last member, the dialog also offers to delete the repo on GitHub, which removes the team too.
 - **Delete team** removes the team from the app only. The repo stays on GitHub, and the members can create or join another team.
 - **Changed on GitHub**: each time the page opens, it compares the teams with GitHub (read-only) and lists repos that were deleted, renamed or moved, members who no longer have access, and expired invitations (GitHub invitations expire after 7 days). **Update the app to match** applies them; an expired invitation becomes "failed", so **Retry failed invitations** sends a new one.
 

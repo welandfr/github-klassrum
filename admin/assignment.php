@@ -79,8 +79,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'remove_member' && $a) {
         $teamId = (int) $_POST['team_id'];
         $sso = (string) $_POST['sso_user'];
-        $error = q('SELECT 1 FROM teams WHERE id = ? AND assignment_id = ?', [$teamId, $a['id']])->fetch()
-            ? remove_member($teamId, $sso) : null;
+        $team = q('SELECT * FROM teams WHERE id = ? AND assignment_id = ?', [$teamId, $a['id']])->fetch();
+        if (!$team) {
+            redirect('admin/assignment.php?id=' . $a['id']);
+        }
+        $members = array_column(team_members($teamId), 'sso_user');
+        if (!empty($_POST['delete_repo']) && $members === [$sso] && $team['repo_url'] !== null) {
+            $error = delete_repo($team);
+            if ($error === null) {
+                delete_team($teamId);
+                flash('ok', "Removed $sso, deleted the repo {$team['repo_name']} on GitHub and the team.");
+                redirect('admin/assignment.php?id=' . $a['id']);
+            }
+            flash('err', "Could not delete the repo, so only the member was removed. $error");
+        }
+        $error = remove_member($teamId, $sso);
         flash('ok', "Removed $sso from the team.");
         if ($error !== null) {
             flash('err', "Removing them on GitHub failed; check the repo's collaborators by hand. $error");
@@ -189,17 +202,27 @@ if ($a) {
             echo '<p class="err">Could not compare with GitHub: ' . h($e->getMessage()) . '</p>';
         }
 
-        $button = fn(string $action, array $fields, string $label, string $confirm) => '<form method="post" class="inline" onsubmit="return confirm('
-            . h(json_encode($confirm)) . ')">' . csrf_field() . '<input type="hidden" name="action" value="' . $action . '">'
+        // A button that opens a confirmation dialog holding the actual form; $extra is HTML added to the dialog.
+        $button = fn(string $action, array $fields, string $label, string $confirm, string $extra = '') =>
+            '<button type="button" class="small danger" onclick="this.nextElementSibling.showModal()">' . h($label) . '</button>'
+            . '<dialog><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="' . $action . '">'
             . implode('', array_map(fn($k, $v) => '<input type="hidden" name="' . $k . '" value="' . h((string) $v) . '">', array_keys($fields), $fields))
-            . '<button class="small danger">' . $label . '</button></form>';
+            . '<p>' . h($confirm) . '</p>' . $extra
+            . '<p><button type="button" class="secondary" onclick="this.closest(\'dialog\').close()">Cancel</button> '
+            . '<button class="danger">' . h(ucfirst($label)) . '</button></p></form></dialog>';
         echo '<table><tr><th>Team</th><th>Repository</th><th>Members</th><th></th></tr>';
         foreach ($teams as $t) {
+            $tm = team_members((int) $t['id']);
+            // Only offered for the last member, so a repo is never deleted under other students.
+            $deleteRepo = count($tm) === 1 && $t['repo_url'] !== null
+                ? '<label><input type="checkbox" name="delete_repo" value="1"> Delete the repo ' . h($t['repo_name'])
+                    . ' on GitHub as well, and the team</label><p class="muted">This can\'t be undone.</p>'
+                : '';
             $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
                 . ($m['invite_status'] === 'invited' ? '' : ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>')
                 . ' ' . $button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
-                    "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too."),
-                team_members((int) $t['id']));
+                    "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too.", $deleteRepo),
+                $tm);
             echo '<tr><td>' . h($t['name']) . '</td><td>'
                 . ($t['repo_url'] === null ? '<span class="muted">being created</span>' : '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>') . '</td>'
                 . '<td>' . implode('<br>', $members) . '</td><td>'

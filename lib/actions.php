@@ -218,6 +218,17 @@ function remove_member(int $teamId, string $sso): ?string
     return $error;
 }
 
+/** Deletes the team's repo on GitHub; returns the error, if any. An already missing repo counts as deleted. */
+function delete_repo(array $team): ?string
+{
+    try {
+        [$s, $body] = gh($team['org'], 'DELETE', '/repos/' . rawurlencode($team['org']) . '/' . rawurlencode($team['repo_name']));
+    } catch (RuntimeException $e) {
+        return $e->getMessage();
+    }
+    return $s === 204 || $s === 404 ? null : "HTTP $s: " . ($body['message'] ?? 'no message');
+}
+
 /** Removes a team and its memberships from the app only; its repo stays on GitHub. */
 function delete_team(int $teamId): void
 {

@@ -38,6 +38,9 @@ button.small{padding:0 6px;font-size:13px}
 button.danger{background:var(--err)}
 button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}
+tr.group th{padding-top:14px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+td.actions-cell{white-space:nowrap;text-align:right}
+button[data-copy]{min-width:8.5em}
 figure{margin:12px 0}
 figure img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
 dd{margin:0 0 12px 0}
@@ -262,6 +265,16 @@ document.addEventListener('click', function (e) {
 document.addEventListener('keydown', function (e) {
     var about = document.querySelector('header details[open]');
     if (about && e.key === 'Escape') about.open = false;
+});
+// Buttons with data-copy copy that text (e.g. a join link) to the clipboard.
+document.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-copy]');
+    if (!b || !navigator.clipboard) return;
+    navigator.clipboard.writeText(b.dataset.copy).then(function () {
+        var label = b.textContent;
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = label; }, 1500);
+    });
 });
 window.addEventListener('pageshow', function (e) {  // coming back via the back button
     if (e.persisted) {

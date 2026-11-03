@@ -27,17 +27,23 @@ echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a> �
 if (!$rows) {
     echo '<p class="muted">No assignments yet.</p>';
 } else {
-    echo '<table><tr><th>Org</th><th>Assignment</th><th>Team size</th><th>Teams / students</th><th>Join link</th></tr>';
+    // One group of rows per org (rows are sorted by org).
+    echo '<table><tr><th>Assignment</th><th>Team size</th><th>Teams</th><th>Students</th><th></th></tr>';
+    $org = null;
     foreach ($rows as $a) {
-        echo '<tr><td style="white-space:nowrap">' . h($a['org']) . '</td><td><a href="' . h(url('admin/assignment.php?id=' . $a['id'])) . '">' . h($a['title']) . '</a>'
+        if ($a['org'] !== $org) {
+            $org = $a['org'];
+            echo '<tr class="group"><th colspan="5">' . h($org) . '</th></tr>';
+        }
+        echo '<tr><td><a href="' . h(url('admin/assignment.php?id=' . $a['id'])) . '">' . h($a['title']) . '</a>'
             . ($a['is_open'] ? '' : ' <span class="muted">(closed)</span>')
-            . ' · <a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">copy</a>'
-            . '<br><span class="muted">Slug <code>' . h($a['slug']) . '</code> · template '
-            . h("{$a['template_owner']}/{$a['template_repo']}") . '</span></td>'
+            . '<br><small class="muted">' . h("{$a['template_owner']}/{$a['template_repo']}") . '</small></td>'
             . '<td>' . (int) $a['max_team_size'] . '</td>'
-            . '<td>' . (int) $a['teams'] . ' / ' . (int) $a['students']
-            . ((int) $a['failed'] ? ' <span class="err">(' . (int) $a['failed'] . ' failed invites)</span>' : '') . '</td>'
-            . '<td><code>' . h(url('join.php?code=' . $a['invite_code'])) . '</code></td></tr>';
+            . '<td>' . (int) $a['teams'] . '</td>'
+            . '<td>' . (int) $a['students']
+            . ((int) $a['failed'] ? '<br><small class="err">' . (int) $a['failed'] . ' failed invites</small>' : '') . '</td>'
+            . '<td class="actions-cell"><button type="button" class="small secondary" data-copy="' . h(url('join.php?code=' . $a['invite_code'])) . '">'
+            . 'Copy join link</button> <a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">Duplicate</a></td></tr>';
     }
     echo '</table>';
 }

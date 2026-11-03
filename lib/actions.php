@@ -106,6 +106,22 @@ function join_team(array $a, array $user, int $teamId): void
     }
 }
 
+/** Leaves the student's team while it has no repo yet; the team is removed when its last member leaves. */
+function leave_team(array $a, string $sso): void
+{
+    tx(function () use ($a, $sso): void {
+        $team = my_team((int) $a['id'], $sso);
+        if (!$team) {
+            throw new UserError('You are not in a team for this assignment.');
+        }
+        if ($team['repo_url'] !== null || $team['creating_since'] !== null) {
+            throw new UserError('The team already has its repository, so you can\'t leave it yourself. Ask the teacher.');
+        }
+        q('DELETE FROM team_members WHERE team_id = ? AND sso_user = ?', [$team['id'], $sso]);
+        q('DELETE FROM teams WHERE id = ? AND NOT EXISTS (SELECT 1 FROM team_members WHERE team_id = ?)', [$team['id'], $team['id']]);
+    });
+}
+
 /**
  * Creates the team's repo from the template, named after the current members, and invites
  * them. The team is marked as being created in a short transaction first, so a double click
@@ -299,14 +315,14 @@ function github_differences(array $a): array
         $id = (int) $t['id'];
         [$s, $repo] = $res["$id:repo"];
         if ($s === 404) {
-            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} no longer exists: remove team {$t['name']}."];
+            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} no longer exists: remove the team “{$t['name']}”."];
             continue;
         }
         if ($s !== 200) {
             throw gh_error("Could not read repo {$t['repo_name']}", $s, $repo);
         }
         if (strcasecmp($repo['owner']['login'], $t['org']) !== 0) {
-            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} was moved to {$repo['full_name']}: remove team {$t['name']}."];
+            $diffs[] = ['type' => 'team_gone', 'team_id' => $id, 'text' => "Repo {$t['repo_name']} was moved to {$repo['full_name']}: remove the team “{$t['name']}”."];
             continue;
         }
         if ($repo['name'] !== $t['repo_name']) {
@@ -333,7 +349,7 @@ function github_differences(array $a): array
             $who = "{$m['sso_user']} ({$m['github_login']})";
             if (!isset($expired[$ghId])) {
                 $diffs[] = ['type' => 'member_gone', 'team_id' => $id, 'sso_user' => $m['sso_user'],
-                    'text' => "$who no longer has access to {$repo['name']}: remove them from team {$t['name']}."];
+                    'text' => "$who no longer has access to {$repo['name']}: remove them from “{$t['name']}”."];
             } elseif ($expired[$ghId]) {
                 $diffs[] = ['type' => 'invite_expired', 'team_id' => $id, 'sso_user' => $m['sso_user'],
                     'text' => "The invitation of $who to {$repo['name']} expired: mark it failed, so Retry sends a new one."];

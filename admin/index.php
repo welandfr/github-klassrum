@@ -27,11 +27,12 @@ echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a> Â
 if (!$rows) {
     echo '<p class="muted">No assignments yet.</p>';
 } else {
-    echo '<table><tr><th>Org</th><th>Assignment</th><th>Template</th><th>Team size</th><th>Teams / students</th><th>Join link</th></tr>';
+    echo '<table><tr><th>Org</th><th>Assignment</th><th>Team size</th><th>Teams / students</th><th>Join link</th></tr>';
     foreach ($rows as $a) {
-        echo '<tr><td>' . h($a['org']) . '</td><td><a href="' . h(url('admin/assignment.php?id=' . $a['id'])) . '">' . h($a['title']) . '</a>'
-            . '<br><code>' . h($a['slug']) . '</code>' . ($a['is_open'] ? '' : ' <span class="muted">(closed)</span>') . '</td>'
-            . '<td>' . h("{$a['template_owner']}/{$a['template_repo']}") . '</td>'
+        echo '<tr><td style="white-space:nowrap">' . h($a['org']) . '</td><td><a href="' . h(url('admin/assignment.php?id=' . $a['id'])) . '">' . h($a['title']) . '</a>'
+            . ($a['is_open'] ? '' : ' <span class="muted">(closed)</span>')
+            . '<br><span class="muted">Slug <code>' . h($a['slug']) . '</code> Â· template '
+            . h("{$a['template_owner']}/{$a['template_repo']}") . '</span></td>'
             . '<td>' . (int) $a['max_team_size'] . '</td>'
             . '<td>' . (int) $a['teams'] . ' / ' . (int) $a['students']
             . ((int) $a['failed'] ? ' <span class="err">(' . (int) $a['failed'] . ' failed invites)</span>' : '') . '</td>'

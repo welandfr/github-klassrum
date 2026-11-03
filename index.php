@@ -30,12 +30,16 @@ if (!$teams) {
     foreach ($teams as $t) {
         echo '<tr><td>' . h($t['title']) . '</td><td>' . h($t['name']) . '</td><td>'
             . ($t['repo_url'] !== null ? '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
-                . ($t['invite_status'] === 'failed' ? ' <span class="err">(invitation failed; contact the teacher)</span>' : '')
+                . match ($t['invite_status']) {
+                    'invited' => ' · <a href="' . h($t['repo_url']) . '/invitations">accept invitation</a>',
+                    'failed' => ' <span class="err">(invitation failed; contact the teacher)</span>',
+                    default => ' <span class="muted">(invitation being sent)</span>',
+                }
                 : '<span class="muted">' . ($t['creating_since'] !== null ? 'being created' : 'not created yet') . '</span> · '
                     . '<a href="' . h(url('join.php?code=' . $t['invite_code'])) . '">team page</a>')
             . '</td></tr>';
     }
-    echo '</table><p class="muted">Not seeing a repo on GitHub? Accept the invitation at '
-        . '<a href="https://github.com/notifications">github.com/notifications</a> or the repo’s /invitations page.</p>';
+    echo '</table><p class="muted">A repo shows “404” on GitHub until you accept its invitation. '
+        . 'Once accepted, the repo link works and the invitation link no longer does.</p>';
 }
 page_end();

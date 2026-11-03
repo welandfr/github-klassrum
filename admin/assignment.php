@@ -184,12 +184,13 @@ echo '<fieldset><legend>' . ($a ? 'Edit' : 'Create') . '</legend><form method="p
     . '<label>GitHub organization</label>' . $orgField
     . '<label>Title</label><input type="text" name="title" value="' . h($f['title']) . '" required>'
     . '<label>Slug (repo name prefix)</label><input type="text" name="slug" value="' . h($f['slug']) . '" required pattern="[a-z0-9][a-z0-9-]{0,39}">'
-    . '<p class="muted">Repos are named <code>&lt;slug&gt;-&lt;github-login&gt;</code> of the student who creates the team. '
-    . 'Changing the slug only affects new repos.</p>'
+    . '<p class="muted">Repos are named <code>&lt;slug&gt;-&lt;member1&gt;-&lt;member2&gt;…</code> after the members\' Arcada usernames, '
+    . 'in join order. Changing the slug only affects repos created after that.</p>'
     . '<label>Template repository</label><input type="text" name="template" value="' . h($f['template']) . '" placeholder="owner/assignment1-template" required>'
     . '<p class="muted">Any template repository the app can read: public, or private in the chosen org.</p>'
     . '<label>Max team size</label><input type="number" name="max_team_size" min="1" max="50" value="' . (int) $f['max_team_size'] . '">'
-    . '<p class="muted">1 = individual assignment.</p>'
+    . '<p class="muted">1 = individual assignment: the repo is created right away. For teams, the repo is created when the team is full, '
+    . 'or earlier when a member says the team is ready.</p>'
     . '<label><input type="checkbox" name="is_open"' . ($f['is_open'] ? ' checked' : '') . '> Open for new teams and joins</label>'
     . '<p><button>Save</button></p></form></fieldset>';
 
@@ -225,7 +226,7 @@ if ($a) {
             $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
                 . ($m['invite_status'] === 'failed' ? ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>' : '')
                 . ' ' . confirm_button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
-                    "Remove {$m['sso_user']} from team {$t['name']}? Their access to the repo on GitHub is removed too.", $deleteRepo),
+                    "Remove {$m['sso_user']} from “{$t['name']}”? Their access to the repo on GitHub is removed too.", $deleteRepo),
                 $tm);
             echo '<tr><td>' . h($t['name']) . '</td><td>'
                 . ($t['repo_url'] !== null ? '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
@@ -235,11 +236,12 @@ if ($a) {
                             . '<button class="small">Create repo</button></form>')) . '</td>'
                 . '<td>' . implode('<br>', $members) . '</td><td>'
                 . confirm_button('delete_team', ['team_id' => $t['id']], 'Delete team',
-                    "Delete team {$t['name']} from the app? Its members can then create or join another team. The repo stays on GitHub.")
+                    "Delete the team “{$t['name']}” from the app? Its members can then create or join another team. The repo stays on GitHub.")
                 . '</td></tr>';
         }
-        echo '</table><form method="post">' . csrf_field() . '<input type="hidden" name="action" value="retry">'
-            . '<button>Retry failed invitations</button></form>';
+        $failed = (int) q("SELECT COUNT(*) FROM team_members WHERE assignment_id = ? AND invite_status = 'failed'", [$a['id']])->fetchColumn();
+        echo '</table>' . ($failed ? '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="retry">'
+            . "<button>Retry failed invitations ($failed)</button></form>" : '');
     }
 }
 page_end();

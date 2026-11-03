@@ -37,6 +37,12 @@ summary{cursor:pointer;font-weight:600;margin:4px 0 8px}
 button.small{padding:0 6px;font-size:13px}
 button.danger{background:var(--err)}
 button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}
+body[data-busy] button{pointer-events:none;cursor:progress}
+button.busy{opacity:.75}
+button.busy::after{content:"";display:inline-block;width:.8em;height:.8em;margin-left:.5em;vertical-align:-.05em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){button.busy::after{animation-duration:2s}}
 dialog{max-width:420px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
 dialog::backdrop{background:rgba(0,0,0,.4)}
 dialog label{font-weight:400}
@@ -189,17 +195,22 @@ function check_csrf(): void
     }
 }
 
-/** A small button that opens a confirmation dialog holding the actual form; $extra is HTML added to the dialog. */
-function confirm_button(string $action, array $fields, string $label, string $confirm, string $extra = ''): string
+/**
+ * A button that opens a confirmation dialog holding the actual form. $extra is HTML added to the
+ * dialog, $class styles the button (a "danger" class also marks the dialog's OK button), and $ok
+ * labels the OK button (default: $label).
+ */
+function confirm_button(string $action, array $fields, string $label, string $confirm, string $extra = '',
+    string $class = 'small danger', ?string $ok = null): string
 {
     $hidden = '';
     foreach (['action' => $action] + $fields as $k => $v) {
         $hidden .= '<input type="hidden" name="' . h($k) . '" value="' . h((string) $v) . '">';
     }
-    return '<button type="button" class="small danger" onclick="this.nextElementSibling.showModal()">' . h($label) . '</button>'
+    return '<button type="button" class="' . $class . '" onclick="this.nextElementSibling.showModal()">' . h($label) . '</button>'
         . '<dialog><form method="post">' . csrf_field() . $hidden . '<p>' . h($confirm) . '</p>' . $extra
         . '<p><button type="button" class="secondary" onclick="this.closest(\'dialog\').close()">Cancel</button> '
-        . '<button class="danger">' . h(ucfirst($label)) . '</button></p></form></dialog>';
+        . '<button' . (str_contains($class, 'danger') ? ' class="danger"' : '') . '>' . h($ok ?? ucfirst($label)) . '</button></p></form></dialog>';
 }
 
 function flash(string $type, string $msg): void
@@ -229,9 +240,36 @@ function page_start(string $title): void
     unset($_SESSION['flash']);
 }
 
+// Page script. After the first submit, show a spinner on the clicked button and ignore further submits until the
+// next page loads, so slow GitHub calls aren't started twice. Buttons aren't disabled, since a
+// disabled submit button would drop its name/value from the form data.
+const BUSY_JS = <<<'JS'
+document.addEventListener('submit', function (e) {
+    if (e.defaultPrevented) return;  // e.g. a cancelled confirm()
+    if (document.body.dataset.busy) { e.preventDefault(); return; }
+    document.body.dataset.busy = '1';
+    if (e.submitter) e.submitter.classList.add('busy');
+});
+// The header's About panel closes on a click outside it, or on Escape.
+document.addEventListener('click', function (e) {
+    var about = document.querySelector('header details[open]');
+    if (about && !about.contains(e.target)) about.open = false;
+});
+document.addEventListener('keydown', function (e) {
+    var about = document.querySelector('header details[open]');
+    if (about && e.key === 'Escape') about.open = false;
+});
+window.addEventListener('pageshow', function (e) {  // coming back via the back button
+    if (e.persisted) {
+        delete document.body.dataset.busy;
+        document.querySelectorAll('button.busy').forEach(function (b) { b.classList.remove('busy'); });
+    }
+});
+JS;
+
 function page_end(): void
 {
-    echo '</main></body></html>';
+    echo '</main><script>' . BUSY_JS . '</script></body></html>';
 }
 
 /** True once the tables exist and the GitHub App is configured. */

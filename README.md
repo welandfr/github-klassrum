@@ -55,6 +55,8 @@ On the **Admin → New assignment** page:
 - **Max team size**: use 1 for individual work; the repo is then created right away. For larger teams, the repo is created when the team is full, or earlier when any member clicks **Our team is ready – create the repository** (or the admin clicks **Create repo**). Students can still join a team with a repo if it isn't full; they are invited, but the repo name doesn't change.
 - **Open**: untick to stop new teams and joins.
 
+To reuse an assignment, e.g. for next year's group org, use **copy** on the admin page or **Copy to a new assignment** on its page: it opens the form prefilled with its settings (not its teams).
+
 Share the join link it shows. The assignment page lists teams, repos and members, and has a **Retry failed invitations** button. A typical cause of failed invitations is GitHub not having the repo ready yet.
 
 - **remove** (next to a member) removes the student from the team, and from the repo on GitHub, including a pending invitation. They can then create or join another team. For a team's last member, the dialog also offers to delete the repo on GitHub, which removes the team too.

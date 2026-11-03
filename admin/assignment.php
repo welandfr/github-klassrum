@@ -128,13 +128,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$f = $_SESSION['form'] ?? ($a ? [
-    'org' => $a['org'],
-    'title' => $a['title'],
-    'slug' => $a['slug'],
-    'template' => "{$a['template_owner']}/{$a['template_repo']}",
-    'max_team_size' => $a['max_team_size'],
-    'is_open' => $a['is_open'],
+// A new assignment can start as a copy of an old one (?copy=id): its settings, not its teams.
+$copy = !$a && isset($_GET['copy']) ? q('SELECT * FROM assignments WHERE id = ?', [(int) $_GET['copy']])->fetch() : null;
+$src = $a ?: $copy;
+$f = $_SESSION['form'] ?? ($src ? [
+    'org' => $src['org'],
+    'title' => $src['title'],
+    'slug' => $src['slug'],
+    'template' => "{$src['template_owner']}/{$src['template_repo']}",
+    'max_team_size' => $src['max_team_size'],
+    'is_open' => $a ? $a['is_open'] : 1,
 ] : ['org' => '', 'title' => '', 'slug' => '', 'template' => '', 'max_team_size' => 1, 'is_open' => 1]);
 unset($_SESSION['form']);
 
@@ -176,7 +179,12 @@ page_start($a ? $a['title'] : 'New assignment');
 echo pending_migrations_notice();
 echo '<p><a href="' . h(url('admin/')) . '">← Assignments</a></p>';
 if ($a) {
-    echo '<p>Join link for students: <code>' . h(url('join.php?code=' . $a['invite_code'])) . '</code></p>';
+    echo '<p>Join link for students: <code>' . h(url('join.php?code=' . $a['invite_code'])) . '</code></p>'
+        . '<p><a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">Copy to a new assignment</a> '
+        . '<span class="muted">(same settings, e.g. for another group\'s org; teams are not copied)</span></p>';
+} elseif ($copy) {
+    echo '<p class="muted">Copied from <b>' . h($copy['title']) . '</b> (' . h($copy['org']) . '). Check the settings, '
+        . 'especially the organization, and save to create the new assignment with its own join link.</p>';
 }
 
 echo '<fieldset><legend>' . ($a ? 'Edit' : 'Create') . '</legend><form method="post">' . csrf_field()

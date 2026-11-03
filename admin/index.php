@@ -31,6 +31,7 @@ if (!$rows) {
     foreach ($rows as $a) {
         echo '<tr><td style="white-space:nowrap">' . h($a['org']) . '</td><td><a href="' . h(url('admin/assignment.php?id=' . $a['id'])) . '">' . h($a['title']) . '</a>'
             . ($a['is_open'] ? '' : ' <span class="muted">(closed)</span>')
+            . ' · <a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">copy</a>'
             . '<br><span class="muted">Slug <code>' . h($a['slug']) . '</code> · template '
             . h("{$a['template_owner']}/{$a['template_repo']}") . '</span></td>'
             . '<td>' . (int) $a['max_team_size'] . '</td>'

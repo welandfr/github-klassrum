@@ -80,6 +80,8 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 
 ## Notes
 
+- `howto.php` is a step-by-step guide for students, linked from the start page. Its screenshots in `howto/` were taken from the app with example data; retake them if the pages change a lot.
+
 - Students must accept the GitHub invitation (`<repo-url>/invitations`) before the repo is visible to them.
 - Each student can be in one team per assignment. While a team has no repo, members can leave it themselves (the last one to leave removes it); after that, only the admin can remove them. Changes made on GitHub (removed collaborators, deleted or renamed repos) show up on the assignment page; see Assignments.
 - Creating a repo marks the team in the database first, then calls GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If it fails, the team goes back to waiting and can try again. If the request dies halfway, that happens after 10 minutes; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).

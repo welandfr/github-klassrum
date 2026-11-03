@@ -38,6 +38,10 @@ button.small{padding:0 6px;font-size:13px}
 button.danger{background:var(--err)}
 button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0}
+figure{margin:12px 0}
+figure img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
+dd{margin:0 0 12px 0}
+h3{margin:16px 0 4px}
 body[data-busy] button{pointer-events:none;cursor:progress}
 button.busy{opacity:.75}
 button.busy::after{content:"";display:inline-block;width:.8em;height:.8em;margin-left:.5em;vertical-align:-.05em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite}

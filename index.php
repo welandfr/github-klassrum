@@ -11,7 +11,8 @@ $me = linked_user($sso);
 
 page_start('My assignment repos');
 echo '<p class="muted">Arcada-user: ' . h($sso) . ($me ? '<br>GitHub: <a href="https://github.com/' . h($me['github_login']) . '">'
-    . h($me['github_login']) . '</a> · <a href="oauth.php">re-link</a>' : '') . '</p>';
+    . h($me['github_login']) . '</a> · <a href="oauth.php">re-link</a>' : '') . '</p>'
+    . '<p>New to Klassrum? Read the <a href="' . h(url('howto.php')) . '">student guide</a>.</p>';
 
 if (!$me) {
     echo '<p>Connect your GitHub account to get started.</p>'

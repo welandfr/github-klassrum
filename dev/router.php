@@ -11,7 +11,7 @@ if (PHP_SAPI !== 'cli-server') {
 
 // Mirror the .htaccess denies, which the built-in server ignores.
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-if (preg_match('~^/(lib|config|dev|migrations)(/|$)~', $path)) {
+if (preg_match('~^/(lib|config|dev|migrations|\.git)(/|$)~', $path)) {
     http_response_code(403);
     exit('Forbidden');
 }

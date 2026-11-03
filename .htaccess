@@ -1,0 +1,5 @@
+# The deployment is a git checkout: never serve the repository metadata.
+# (Require is used because it is known to be allowed here; see config/.htaccess.)
+<If "%{REQUEST_URI} =~ m#/\.git(/|$)#">
+    Require all denied
+</If>

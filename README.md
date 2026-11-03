@@ -11,7 +11,7 @@ Requires PHP 8.1+ with `pdo_sqlite` (SQLite 3.37+), `curl` and `openssl`, and SS
 3. Copy `config/.env.example` to `~/classroom-config/.env` and set `ADMINS` to your SSO username (comma-separate several).
    - The database is `classroom.sqlite` in the same directory unless `DB_PATH` says otherwise. SQLite also creates `-wal` and `-shm` files next to it, so the directory itself must be writable, not just the file.
    - If `~/classroom-config/` doesn't exist, `config/` inside the app is used. Avoid that: files in the web root are only protected by `.htaccess`, and the database and `.env` could be downloaded if the server ignores it.
-   - `dev/check.php` checks the server: which user PHP runs as, writability and filesystem of `~/classroom-config/`, SQLite locking, and outbound HTTPS. Delete it from the server afterwards.
+   - `dev/check.php` checks the server: which user PHP runs as, writability and filesystem of `~/classroom-config/`, SQLite locking, and outbound HTTPS. `dev/` is blocked by `dev/.htaccess`: to run the check, delete that file for a moment and restore it with `git checkout dev/.htaccess`.
    - Real environment variables (e.g. Apache `SetEnv`) override `.env` values.
    - Until this is done, the admin pages show these instructions.
 

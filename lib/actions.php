@@ -43,28 +43,87 @@ function reset_stale_creations(): void
        WHERE repo_url IS NULL AND creating_since < datetime('now', ?)", ['-' . STALE_TEAM_MINUTES . ' minutes']);
 }
 
+/** @return list<string> the Arcada usernames a team's free slots are reserved for */
+function team_reservations(int $teamId): array
+{
+    return q('SELECT sso_user FROM team_reservations WHERE team_id = ? ORDER BY created_at', [$teamId])->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/** Splits "alice, bob" (commas, semicolons or spaces) into usernames. */
+function parse_usernames(string $s): array
+{
+    return array_values(array_unique(array_filter(preg_split('/[\s,;]+/', trim($s)))));
+}
+
 /**
- * Creates a team with the student as its first member. The repo is created once the team is
- * full (right away for individual assignments), or earlier when a member asks for it.
+ * Reserves a free slot of the team for an Arcada username; call inside tx(). Only that student
+ * can then take the slot (they still join themselves). Throws UserError if it isn't possible.
  */
-function create_team(array $a, array $user, string $teamName): void
+function reserve_slot(array $a, array $team, string $sso, string $by): void
+{
+    $sso = strtolower(trim($sso));  // Arcada usernames are lowercase
+    if (!preg_match('/^[A-Za-z0-9._@-]{1,64}$/', $sso)) {
+        throw new UserError("“{$sso}” is not a valid Arcada username.");
+    }
+    $members = (int) q('SELECT COUNT(*) FROM team_members WHERE team_id = ?', [$team['id']])->fetchColumn();
+    if ($members + count(team_reservations((int) $team['id'])) >= (int) $a['max_team_size']) {
+        throw new UserError("No free slot left to reserve for {$sso}.");
+    }
+    if (q('SELECT 1 FROM team_members WHERE assignment_id = ? AND sso_user = ? COLLATE NOCASE', [$a['id'], $sso])->fetch()) {
+        throw new UserError("{$sso} is already in a team for this assignment.");
+    }
+    try {
+        q('INSERT INTO team_reservations (team_id, assignment_id, sso_user, reserved_by) VALUES (?, ?, ?, ?)',
+            [$team['id'], $a['id'], $sso, $by]);
+    } catch (PDOException $e) {
+        throw is_duplicate_key($e) ? new UserError("A slot is already reserved for {$sso} in this assignment.") : $e;
+    }
+}
+
+/** The student's team, for changing its settings: only while it has no repo. */
+function my_open_team(array $a, string $sso): array
+{
+    $team = my_team((int) $a['id'], $sso);
+    if (!$team) {
+        throw new UserError('You are not in a team for this assignment.');
+    }
+    if ($team['repo_url'] !== null || $team['creating_since'] !== null) {
+        throw new UserError('The team already has its repository; ask the teacher for changes.');
+    }
+    return $team;
+}
+
+/**
+ * Creates a team with the student as its first member, optionally marked as looking for
+ * teammates and with slots reserved for classmates. The repo is created once the team is full
+ * (right away for individual assignments), or earlier when a member asks for it.
+ */
+function create_team(array $a, array $user, string $teamName, bool $looking = false, array $reserve = []): void
 {
     $teamName = trim($teamName) === '' ? $user['sso_user'] : trim($teamName);
     if (strlen($teamName) > 100) {
         throw new UserError('Team name is too long.');
     }
-    $teamId = tx(function () use ($a, $user, $teamName): int {
+    $teamId = tx(function () use ($a, $user, $teamName, $looking, $reserve): int {
         if (my_team((int) $a['id'], $user['sso_user'])) {
             throw new UserError('You are already in a team for this assignment.');
         }
         if (q('SELECT 1 FROM teams WHERE assignment_id = ? AND name = ?', [$a['id'], $teamName])->fetch()) {
             throw new UserError('A team with that name already exists.');
         }
-        q('INSERT INTO teams (assignment_id, name, org, created_by) VALUES (?, ?, ?, ?)',
-            [$a['id'], $teamName, $a['org'], $user['sso_user']]);
+        q('INSERT INTO teams (assignment_id, name, org, created_by, looking) VALUES (?, ?, ?, ?, ?)',
+            [$a['id'], $teamName, $a['org'], $user['sso_user'], $looking ? 1 : 0]);
         $teamId = (int) db()->lastInsertId();
         q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
             [$teamId, $a['id'], $user['sso_user']]);
+        // A slot reserved for this student elsewhere is no longer needed.
+        q('DELETE FROM team_reservations WHERE assignment_id = ? AND sso_user = ?', [$a['id'], $user['sso_user']]);
+        $team = q('SELECT * FROM teams WHERE id = ?', [$teamId])->fetch();
+        foreach ($reserve as $sso) {
+            if (strcasecmp($sso, $user['sso_user']) !== 0) {
+                reserve_slot($a, $team, $sso, $user['sso_user']);
+            }
+        }
         return $teamId;
     });
     if ((int) $a['max_team_size'] <= 1) {
@@ -85,8 +144,12 @@ function join_team(array $a, array $user, int $teamId): void
             throw new UserError('That team\'s repository is being created. Try again in a moment.');
         }
         $count = (int) q('SELECT COUNT(*) FROM team_members WHERE team_id = ?', [$teamId])->fetchColumn();
-        if ($count >= (int) $a['max_team_size']) {
-            throw new UserError('That team is already full.');
+        $reserved = team_reservations($teamId);
+        $mine = in_array(strtolower($user['sso_user']), array_map('strtolower', $reserved), true);
+        // Slots reserved for others are taken; a student's own reserved slot is theirs.
+        if ($count + count($reserved) - ($mine ? 1 : 0) >= (int) $a['max_team_size']) {
+            throw new UserError($count >= (int) $a['max_team_size'] ? 'That team is already full.'
+                : 'The free slots of that team are reserved for other students.');
         }
         try {
             q('INSERT INTO team_members (team_id, assignment_id, sso_user) VALUES (?, ?, ?)',
@@ -97,12 +160,13 @@ function join_team(array $a, array $user, int $teamId): void
             }
             throw $e;
         }
+        q('DELETE FROM team_reservations WHERE assignment_id = ? AND sso_user = ?', [$a['id'], $user['sso_user']]);
         return [$team, $count + 1];
     });
     if ($team['repo_url'] !== null) {
         invite_member($teamId, $user['sso_user']);  // joined after the repo was created
     } elseif ($count >= (int) $a['max_team_size']) {
-        create_repo($teamId);  // the team is now full
+        create_repo($teamId);  // the team is now full (reserved slots are only full once taken)
     }
 }
 

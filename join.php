@@ -21,11 +21,13 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
     $action = $_POST['action'] ?? '';
     try {
-        if (!$a['is_open'] && !in_array($action, ['create_repo', 'leave'], true)) {
+        // A closed assignment takes no new teams or joins; existing teams can still be managed.
+        if (!$a['is_open'] && in_array($action, ['create', 'join'], true)) {
             throw new UserError('This assignment is closed.');
         }
         if ($action === 'create') {
-            create_team($a, $me, (string) ($_POST['team_name'] ?? ''));
+            create_team($a, $me, (string) ($_POST['team_name'] ?? ''), !empty($_POST['looking']),
+                parse_usernames((string) ($_POST['reserve'] ?? '')));
             flash('ok', (int) $a['max_team_size'] > 1 ? 'Team created.' : 'Repository created.');
         } elseif ($action === 'join') {
             join_team($a, $me, (int) ($_POST['team_id'] ?? 0));
@@ -33,6 +35,18 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'leave') {
             leave_team($a, $sso);
             flash('ok', 'You left the team.');
+        } elseif ($action === 'reserve') {
+            $other = strtolower(trim((string) ($_POST['sso_user'] ?? '')));
+            tx(fn() => reserve_slot($a, my_open_team($a, $sso), $other, $sso));
+            flash('ok', "A slot is reserved for $other. They still need to open the join link and join your team.");
+        } elseif ($action === 'unreserve') {
+            tx(fn() => q('DELETE FROM team_reservations WHERE team_id = ? AND sso_user = ?',
+                [my_open_team($a, $sso)['id'], (string) ($_POST['sso_user'] ?? '')]));
+            flash('ok', 'The reservation was removed; anyone can take that slot now.');
+        } elseif ($action === 'looking') {
+            q('UPDATE teams SET looking = ? WHERE id = ?', [empty($_POST['looking']) ? 0 : 1, my_open_team($a, $sso)['id']]);
+            flash('ok', empty($_POST['looking']) ? 'Your team is no longer marked as looking for teammates.'
+                : 'Your team is now marked as looking for teammates.');
         } elseif ($action === 'create_repo') {
             $team = my_team((int) $a['id'], $sso);
             if (!$team) {
@@ -82,19 +96,44 @@ if ($team && $team['repo_url'] === null) {
         page_end();
         exit;
     }
-    echo '<p>You are in team <b>' . h($team['name']) . "</b> ($n/$size). It has no repository yet.</p>"
-        . '<table><tr><th>Member</th><th>GitHub</th></tr>';
+    $reserved = team_reservations((int) $team['id']);
+    echo '<p>You are in team <b>' . h($team['name']) . "</b> ($n/$size)"
+        . ($team['looking'] ? ' <span class="badge">Looking for teammates</span>' : '') . '. It has no repository yet.</p>'
+        . '<table><tr><th>Member</th><th>GitHub</th><th></th></tr>';
     foreach ($members as $m) {
-        echo '<tr><td>' . h($m['sso_user']) . '</td><td>' . h($m['github_login']) . '</td></tr>';
+        echo '<tr><td>' . h($m['sso_user']) . '</td><td>' . h($m['github_login']) . '</td><td></td></tr>';
+    }
+    foreach ($reserved as $r) {
+        echo '<tr><td>' . h($r) . '</td><td class="muted">slot reserved, not joined yet</td><td class="actions-cell">'
+            . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="unreserve">'
+            . '<input type="hidden" name="sso_user" value="' . h($r) . '"><button class="small secondary">Remove reservation</button></form></td></tr>';
     }
     echo '</table>';
     if ($n < $size) {
+        $free = $size - $n - count($reserved);
         echo '<p>Teammates join by opening the same join link and choosing your team:<br><code>' . h(url($self)) . '</code></p>'
-            . '<p>The repository is created automatically when the team is full. If your team is complete with fewer members, '
+            . '<fieldset><legend>Team settings</legend>'
+            . '<form method="post" class="actions">' . csrf_field() . '<input type="hidden" name="action" value="looking">'
+            . ($team['looking']
+                ? '<span>Your team is shown as <b>looking for teammates</b>.</span><button class="small secondary">Stop looking</button>'
+                : '<input type="hidden" name="looking" value="1"><span>Don\'t have teammates yet? Show your team as looking for teammates.</span>'
+                    . '<button class="small secondary">Mark as looking</button>')
+            . '</form>'
+            . ($free > 0
+                ? '<form method="post" class="actions">' . csrf_field() . '<input type="hidden" name="action" value="reserve">'
+                    . '<label for="reserve_user" style="margin:0">Reserve a slot for</label>'
+                    . '<input type="text" id="reserve_user" name="sso_user" required maxlength="64" placeholder="Arcada username" style="width:14em">'
+                    . '<button class="small secondary">Reserve</button></form>'
+                    . '<p class="muted">Only that student can then take the slot; they still open the join link and join themselves.</p>'
+                : '')
+            . '</fieldset>'
+            . '<p>The repository is created automatically when the team is full' . ($reserved ? ', including the reserved slots' : '')
+            . '. If your team is complete with fewer members, '
             . 'any member can create it now. It will be named <code>' . h($repoName) . '</code>.</p><div class="actions">'
             . confirm_button('create_repo', [], 'Our team is ready – create the repository',
                 "Your team has $n of $size members. Create the repository $repoName now? Students who join later still get access, "
-                . 'but the name stays as it is.', '', '', 'Create the repository');
+                . 'but the name stays as it is.' . ($reserved ? ' Reserved students who haven\'t joined yet are not in the name.' : ''),
+                '', '', 'Create the repository');
     } else {
         // Full but without a repo: an earlier attempt failed.
         echo '<p>Your team is complete. Its repository <code>' . h($repoName) . '</code> could not be created yet; try again.</p><div class="actions">'
@@ -139,11 +178,24 @@ if (!$a['is_open']) {
     exit;
 }
 
+// A classmate reserved a slot for this student: point them to it before offering a team of their own.
+$reservedIn = q('SELECT t.name FROM team_reservations r JOIN teams t ON t.id = r.team_id WHERE r.assignment_id = ? AND r.sso_user = ?',
+    [$a['id'], $sso])->fetchColumn();
+if ($reservedIn !== false) {
+    echo '<p class="ok">A slot is reserved for you in team <b>' . h($reservedIn) . '</b>. '
+        . 'Click <b>Join</b> next to it in the <a href="#teams">list below</a>.</p>';
+}
+
 echo '<fieldset><legend>' . ($size > 1 ? 'Create a new team' : 'Your repository') . '</legend><form method="post">' . csrf_field()
     . '<input type="hidden" name="action" value="create">';
 if ($size > 1) {
     echo '<label for="team_name">Team name</label>'
-        . '<input type="text" id="team_name" name="team_name" maxlength="100" placeholder="' . h($sso) . '">';
+        . '<input type="text" id="team_name" name="team_name" maxlength="100" placeholder="' . h($sso) . '">'
+        . '<label for="reserve">Reserve slots for classmates (optional)</label>'
+        . '<input type="text" id="reserve" name="reserve" maxlength="300" placeholder="Arcada usernames, separated by commas">'
+        . '<p class="muted">Only those students can take the reserved slots. They still open this join link and join themselves.</p>'
+        . '<label><input type="checkbox" name="looking" value="1"> Looking for teammates: '
+        . '<span style="font-weight:400">show the team as open to anyone who doesn\'t have a team yet</span></label>';
 }
 echo '<p class="muted">' . ($size > 1
         ? 'Teammates then join your team from this page. The repository is created when the team is full, or earlier by any member, '
@@ -154,28 +206,40 @@ echo '<p class="muted">' . ($size > 1
 
 if ($size > 1) {
     // Members in join order; an ordered subquery instead of group_concat(... ORDER BY), which needs SQLite 3.44.
-    $teams = q('SELECT t.id, t.name, t.repo_url,
+    $teams = q('SELECT t.id, t.name, t.repo_url, t.looking,
                        (SELECT COUNT(*) FROM team_members m WHERE m.team_id = t.id) AS n,
+                       (SELECT group_concat(r.sso_user, \', \') FROM team_reservations r WHERE r.team_id = t.id) AS reserved,
                        (SELECT group_concat(member, \', \') FROM (
                            SELECT m.sso_user || COALESCE(\' (\' || u.github_login || \')\', \'\') AS member FROM team_members m
                            LEFT JOIN users u ON u.sso_user = m.sso_user WHERE m.team_id = t.id ORDER BY m.joined_at)) AS members
-                FROM teams t WHERE t.assignment_id = ? AND (t.repo_url IS NOT NULL OR t.creating_since IS NULL) ORDER BY t.name', [$a['id']])->fetchAll();
-    echo '<h2>Or join an existing team</h2>';
+                FROM teams t WHERE t.assignment_id = ? AND (t.repo_url IS NOT NULL OR t.creating_since IS NULL)
+                ORDER BY t.looking DESC, t.name', [$a['id']])->fetchAll();
+    echo '<h2 id="teams">Or join an existing team</h2>';
+
     if (!$teams) {
         echo '<p class="muted">No teams yet.</p>';
     } else {
         echo '<table><tr><th>Team</th><th>Members</th><th></th></tr>';
         foreach ($teams as $t) {
+            $reservedFor = parse_usernames((string) $t['reserved']);
+            $forMe = in_array(strtolower($sso), array_map('strtolower', $reservedFor), true);
             $full = (int) $t['n'] >= $size;
-            echo '<tr><td>' . h($t['name']) . ($t['repo_url'] === null ? '' : ' <span class="muted">(repository created)</span>')
-                . '</td><td>' . h($t['members']) . " ({$t['n']}/$size)</td><td>"
+            $taken = !$forMe && (int) $t['n'] + count($reservedFor) >= $size;  // free slots are all reserved for others
+            echo '<tr><td>' . h($t['name'])
+                . ($t['looking'] && $t['repo_url'] === null && !$full && !$taken ? ' <span class="badge">Looking for teammates</span>' : '')
+                . ($t['repo_url'] === null ? '' : ' <span class="muted">(repository created)</span>')
+                . '</td><td>' . h($t['members']) . " ({$t['n']}/$size)"
+                . ($reservedFor ? '<br><small class="' . ($forMe ? 'ok' : 'muted') . '">Reserved for '
+                    . h(implode(', ', $reservedFor)) . ($forMe ? ' (you)' : '') . '</small>' : '')
+                . '</td><td>'
                 . ($full ? '<button disabled>Full</button>'
+                    : ($taken ? '<button disabled title="The free slots are reserved for other students">Reserved</button>'
                     : ($t['repo_url'] !== null
                         ? confirm_button('join', ['team_id' => $t['id']], 'Join', "“{$t['name']}” already has its repository. "
                             . 'You will be invited to it, but you can\'t leave the team yourself afterwards; ask the teacher if needed.', '', '')
                         : '<form method="post">' . csrf_field()
                             . '<input type="hidden" name="action" value="join"><input type="hidden" name="team_id" value="' . $t['id'] . '">'
-                            . '<button>Join</button></form>'))
+                            . '<button>Join</button></form>')))
                 . '</td></tr>';
         }
         echo '</table>';

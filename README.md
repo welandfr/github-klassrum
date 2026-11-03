@@ -53,7 +53,7 @@ On the **Admin → New assignment** page:
 - **Template**: a repo marked as a template (repo *Settings → Template repository*), given as `owner/repo` or its URL. It can be any public template, or a private one in the chosen org.
 - **Slug**: repo name prefix, unique within the org. Repos are named after the members' SSO usernames in join order, `<slug>-<user1>-<user2>…`, with `-2`, `-3`, … appended if the name is taken.
 - **Max team size**: use 1 for individual work; the repo is then created right away. For larger teams, the repo is created when the team is full, or earlier when any member clicks **Our team is ready – create the repository** (or the admin clicks **Create repo**). Students can still join a team with a repo if it isn't full; they are invited, but the repo name doesn't change.
-- **Open**: untick to stop new teams and joins.
+- **Open**: untick to stop new teams and joins. An assignment without teams can also be deleted on its page (**Delete assignment**); one with teams can only be closed.
 
 To reuse an assignment, e.g. for next year's group org, use **copy** on the admin page or **Copy to a new assignment** on its page: it opens the form prefilled with its settings (not its teams).
 
@@ -85,6 +85,7 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 - `howto.php` is a step-by-step guide for students, linked from the start page. Its screenshots in `howto/` were taken from the app with example data; retake them if the pages change a lot.
 
 - Students must accept the GitHub invitation (`<repo-url>/invitations`) before the repo is visible to them.
+- When creating a team (or later, until its repo exists), students can mark it as **looking for teammates** (highlighted and listed first in the join list) and **reserve slots** for classmates' Arcada usernames: only that student can take the slot. The repo is only auto-created once reserved students have joined. Admins see and can remove reservations on the assignment page.
 - Each student can be in one team per assignment. While a team has no repo, members can leave it themselves (the last one to leave removes it); after that, only the admin can remove them. Changes made on GitHub (removed collaborators, deleted or renamed repos) show up on the assignment page; see Assignments.
 - Creating a repo marks the team in the database first, then calls GitHub outside any transaction, because SQLite allows one writer at a time. While that runs, the team is shown as "being created" and can't be joined. If it fails, the team goes back to waiting and can try again. If the request dies halfway, that happens after 10 minutes; a repo GitHub did create stays in the org, and the retry gets the next name (`-2`).
 - Back up the database with `sqlite3 classroom.sqlite ".backup backup.sqlite"` rather than copying the file while the app runs.

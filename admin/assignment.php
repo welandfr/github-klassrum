@@ -72,6 +72,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['form'] = $f;  // repopulate the form after the redirect
             redirect('admin/assignment.php' . ($id ? "?id=$id" : ''));
         }
+    } elseif ($action === 'delete_assignment' && $a) {
+        // Only without teams: their repos and members would otherwise lose their assignment.
+        $n = q('DELETE FROM assignments WHERE id = ? AND NOT EXISTS (SELECT 1 FROM teams WHERE assignment_id = ?)',
+            [$a['id'], $a['id']])->rowCount();
+        if ($n) {
+            flash('ok', "Deleted the assignment “{$a['title']}”.");
+            redirect('admin/');
+        }
+        flash('err', 'The assignment has teams, so it can\'t be deleted. Close it instead.');
+        redirect('admin/assignment.php?id=' . $a['id']);
     } elseif ($action === 'retry' && $a) {
         [$ok, $failed] = retry_failed_invites((int) $a['id']);
         flash($failed ? 'err' : 'ok', "Retried invitations: $ok succeeded, $failed failed.");
@@ -110,6 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (UserError $e) {
             flash('err', $e->getMessage());
         }
+        redirect('admin/assignment.php?id=' . $a['id']);
+    } elseif ($action === 'unreserve' && $a) {
+        q('DELETE FROM team_reservations WHERE assignment_id = ? AND team_id = ? AND sso_user = ?',
+            [$a['id'], (int) $_POST['team_id'], (string) $_POST['sso_user']]);
+        flash('ok', 'Reservation for ' . $_POST['sso_user'] . ' removed.');
         redirect('admin/assignment.php?id=' . $a['id']);
     } elseif ($action === 'delete_team' && $a) {
         q('DELETE FROM teams WHERE id = ? AND assignment_id = ?', [(int) $_POST['team_id'], $a['id']]);
@@ -202,6 +217,14 @@ echo '<fieldset><legend>' . ($a ? 'Edit' : 'Create') . '</legend><form method="p
     . '<label><input type="checkbox" name="is_open"' . ($f['is_open'] ? ' checked' : '') . '> Open for new teams and joins</label>'
     . '<p><button>Save</button></p></form></fieldset>';
 
+if ($a && !$orgLocked) {
+    echo '<div class="actions">' . confirm_button('delete_assignment', [], 'Delete assignment',
+        "Delete the assignment “{$a['title']}”? Its join link stops working. It has no teams, so nothing on GitHub is affected.",
+        '', 'danger') . '</div>';
+} elseif ($a) {
+    echo '<p class="muted">An assignment with teams can\'t be deleted; untick “Open for new teams and joins” to close it instead.</p>';
+}
+
 if ($a) {
     $teams = q('SELECT * FROM teams WHERE assignment_id = ? ORDER BY name', [$a['id']])->fetchAll();
     echo '<h2>Teams (' . count($teams) . ')</h2>';
@@ -236,7 +259,12 @@ if ($a) {
                 . ' ' . confirm_button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
                     "Remove {$m['sso_user']} from “{$t['name']}”? Their access to the repo on GitHub is removed too.", $deleteRepo),
                 $tm);
-            echo '<tr><td>' . h($t['name']) . '</td><td>'
+            foreach (team_reservations((int) $t['id']) as $r) {
+                $members[] = '<span class="muted">' . h($r) . ' (reserved, not joined)</span> <form method="post" style="display:inline">'
+                    . csrf_field() . '<input type="hidden" name="action" value="unreserve"><input type="hidden" name="team_id" value="' . $t['id'] . '">'
+                    . '<input type="hidden" name="sso_user" value="' . h($r) . '"><button class="small secondary">unreserve</button></form>';
+            }
+            echo '<tr><td>' . h($t['name']) . ($t['looking'] && $t['repo_url'] === null ? ' <span class="badge">Looking</span>' : '') . '</td><td>'
                 . ($t['repo_url'] !== null ? '<a href="' . h($t['repo_url']) . '">' . h($t['repo_name']) . '</a>'
                     : ($t['creating_since'] !== null ? '<span class="muted">being created</span>'
                         : '<span class="muted">waiting for members</span> <form method="post" style="display:inline">' . csrf_field()

@@ -41,6 +41,7 @@ button.secondary{background:transparent;color:var(--fg);border:1px solid var(--l
 tr.group th{padding-top:14px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
 td.actions-cell{white-space:nowrap;text-align:right}
 button[data-copy]{min-width:8.5em}
+.badge{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;font-weight:600;color:var(--accent);background:rgba(127,127,127,.15)}
 figure{margin:12px 0}
 figure img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
 dd{margin:0 0 12px 0}

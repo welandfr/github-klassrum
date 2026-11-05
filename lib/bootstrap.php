@@ -226,6 +226,23 @@ function flash(string $type, string $msg): void
     $_SESSION['flash'][] = [$type, $msg];
 }
 
+/** The commit the app's git checkout is at, or null when it isn't a checkout. */
+function deployed_commit(): ?string
+{
+    $git = APP_DIR . '/.git';
+    $head = trim((string) @file_get_contents("$git/HEAD"));
+    if (str_starts_with($head, 'ref: ')) {
+        $ref = substr($head, 5);
+        $head = trim((string) @file_get_contents("$git/$ref"));
+        if ($head === '') {
+            // After git gc the branch may only be listed in packed-refs.
+            $packed = (string) @file_get_contents("$git/packed-refs");
+            $head = preg_match('/^([0-9a-f]{40}) ' . preg_quote($ref, '/') . '$/m', $packed, $m) ? $m[1] : '';
+        }
+    }
+    return preg_match('/^[0-9a-f]{40}$/', $head) ? $head : null;
+}
+
 function page_start(string $title): void
 {
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -241,6 +258,7 @@ function page_start(string $title): void
         . '<p>By Fredrik Welander.</p>'
         . '<p>Free software under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3</a> or later.</p>'
         . '<p>Source: <a href="' . APP_REPO . '">' . h(substr(APP_REPO, 8)) . '</a></p>'
+        . (($commit = deployed_commit()) ? '<p>Version: <a href="' . APP_REPO . '/commit/' . $commit . '">' . substr($commit, 0, 7) . '</a></p>' : '')
         . '</div></details></span></div></header><main><h1>' . h($title) . '</h1>';
     foreach ($_SESSION['flash'] ?? [] as [$type, $msg]) {
         echo '<p class="' . h($type) . '">' . h($msg) . '</p>';

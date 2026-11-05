@@ -6,7 +6,7 @@ Requires PHP 8.1+ with `pdo_sqlite` (SQLite 3.37+), `curl` and `openssl`, and SS
 
 ## 1. Deploy
 
-1. Copy this folder to the server, e.g. `~/public_html/classroom/`, inside the SSO-protected area.
+1. Clone the repo to the server, e.g. `git clone https://github.com/welandfr/github-klassrum.git ~/public_html/classroom`, inside the SSO-protected area. The `.htaccess` files block `.git/`, `dev/` and `bin/`.
 2. Create `~/classroom-config/`, one level above `public_html`, writable by the web server. It holds the config and the database.
 3. Copy `config/.env.example` to `~/classroom-config/.env` and set `ADMINS` to your SSO username (comma-separate several).
    - The database is `classroom.sqlite` in the same directory unless `DB_PATH` says otherwise. SQLite also creates `-wal` and `-shm` files next to it, so the directory itself must be writable, not just the file.
@@ -63,11 +63,21 @@ Share the join link it shows. The assignment page lists teams, repos and members
 - **Delete team** removes the team from the app only. The repo stays on GitHub, and the members can create or join another team.
 - **Changed on GitHub**: each time the page opens, it compares the teams with GitHub (read-only) and lists repos that were deleted, renamed or moved, members who no longer have access, and expired invitations (GitHub invitations expire after 7 days). **Update the app to match** applies them; an expired invitation becomes "failed", so **Retry failed invitations** sends a new one.
 
+## Automatic deploys
+
+A cron job on the server can pull every pushed commit and apply its migrations (`crontab -e`, with the path to your checkout):
+
+```
+* * * * * cd ~/public_html/classroom && git pull -q --ff-only && php bin/migrate.php
+```
+
+Both commands are silent when there is nothing to do, so cron only mails output when a migration was applied or something failed. The checkout must have no local changes, and its remote must be the HTTPS URL (`git remote set-url origin https://github.com/welandfr/github-klassrum.git`) so pulling needs no key. Use the same PHP version as the web server (`php -v`). The About panel shows the deployed commit.
+
 ## Database migrations
 
 Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `schema_migrations` table. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
 
-- **Production**: after deploying new migration files, admin pages show a "migrations pending" banner. Apply them with **Run pending migrations** on the settings page. Each migration runs in one transaction, so a failing one changes nothing.
+- **Production**: `php bin/migrate.php` applies pending migrations and prints what it applied; the deploy cron job below runs it. Without it, admin pages show a "migrations pending" banner, and **Run pending migrations** on the settings page does the same. Each migration runs in one transaction, so a failing one changes nothing.
 - **Development** (PHP's built-in server with `DB_IS_DEV=1` in `.env`): pending migrations are applied on every page load. **Reset database** on the settings page drops all tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration. Without `DB_IS_DEV=1`, e.g. when developing against the production database, the dev server behaves like production here: no reset button, and migrations only run from the button.
 
 ## Local development

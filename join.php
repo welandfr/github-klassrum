@@ -62,7 +62,8 @@ if ($me && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 page_start($a['title']);
-echo '<p class="muted">Arcada-user: ' . h($sso) . ($me ? '<br>GitHub: ' . h($me['github_login']) : '') . '</p>';
+echo '<p class="muted">Arcada-user: ' . h($sso) . ($me ? '<br>GitHub: ' . h($me['github_login']) : '') . '</p>'
+    . '<p>New to Klassrum? Read the <a href="' . h(url('howto.php')) . '">student guide</a>.</p>';
 
 if (!$me) {
     echo '<p>First, connect your GitHub account so you can be given access to your repository.</p>'

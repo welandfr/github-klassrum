@@ -98,10 +98,33 @@ function sso_user(): string
     return $u;
 }
 
+/** An attribute from the SSO login (mod_auth_mellon: MELLON_displayName, MELLON_arcadaRole, ...), or ''. */
+function sso_attr(string $name): string
+{
+    return $_SERVER["MELLON_$name"] ?? $_SERVER["REDIRECT_MELLON_$name"] ?? '';
+}
+
+/** @return string[] the user's roles from the SSO login (MELLON_arcadaRole_0, _1, ...) */
+function sso_roles(): array
+{
+    $roles = [];
+    for ($i = 0; ($r = sso_attr("arcadaRole_$i")) !== ''; $i++) {
+        $roles[] = $r;
+    }
+    return $roles ?: array_filter([sso_attr('arcadaRole')]);
+}
+
+/** Main admins (ADMINS): their own assignments, like any teacher, plus the settings. */
 function is_admin(): bool
 {
     $admins = array_filter(array_map('trim', explode(',', env('ADMINS') ?? '')));
     return in_array(sso_user(), $admins, true);
+}
+
+/** Teachers create assignments and only see their own. */
+function is_teacher(): bool
+{
+    return is_admin() || in_array('teacher', sso_roles(), true);
 }
 
 // ---- config ----
@@ -125,6 +148,17 @@ function env(string $k): ?string
     }
     $v = $_SERVER[$k] ?? getenv($k);
     return is_string($v) ? $v : $file[$k] ?? null;
+}
+
+function require_teacher(): void
+{
+    if (!is_teacher()) {
+        if ((env('ADMINS') ?? '') === '') {
+            require_admin();  // fresh install: shows the setup instructions
+        }
+        http_response_code(403);
+        exit('Teachers only.');
+    }
 }
 
 function require_admin(): void
@@ -251,8 +285,11 @@ function page_start(string $title): void
         . '<header><div><a class="name" href="' . h(url()) . '">' . APP_NAME . '</a>';
     // Not sso_user(): that exits, and this also renders error pages.
     $user = $_SERVER['REMOTE_USER'] ?? $_SERVER['REDIRECT_REMOTE_USER'] ?? '';
-    echo '<span class="muted">' . ($user !== '' ? h($user) . ' · ' : '')
-        . ($user !== '' && is_admin() ? '<a href="' . h(url('admin/')) . '">Admin</a> · ' : '')
+    $name = sso_attr('displayName');
+    $role = sso_attr('arcadaRole');
+    echo '<span class="muted">' . ($user !== '' ? ($name !== '' ? h($name) . ' (' . h($user) . ')' : h($user))
+            . ($role !== '' ? ' · ' . h($role) : '') . ' · ' : '')
+        . ($user !== '' && is_teacher() ? '<a href="' . h(url('admin/')) . '">Teacher</a> · ' : '')
         . '<details><summary>About</summary><div class="about">'
         . '<p><b>' . APP_NAME . '</b> creates private GitHub repositories for student teams from assignment templates.</p>'
         . '<p>By Fredrik Welander.</p>'

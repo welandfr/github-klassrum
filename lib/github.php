@@ -116,6 +116,29 @@ function gh_installed_orgs(): array
     return array_values($orgs);
 }
 
+/**
+ * Orgs where the app is installed and the GitHub user is an owner. Needs the app's
+ * Organization → Members: Read-only permission.
+ * @return array{0:string[],1:string[]} [owned orgs, orgs whose membership could not be checked]
+ */
+function gh_owned_orgs(string $githubLogin): array
+{
+    $owned = $unchecked = [];
+    foreach (gh_installed_orgs() as $org) {
+        try {
+            [$s, $m] = gh($org, 'GET', '/orgs/' . rawurlencode($org) . '/memberships/' . rawurlencode($githubLogin));
+        } catch (RuntimeException) {
+            $s = 0;
+        }
+        if ($s === 200 && $m['state'] === 'active' && $m['role'] === 'admin') {
+            $owned[] = $org;
+        } elseif ($s !== 200 && $s !== 404) {
+            $unchecked[] = $org;
+        }
+    }
+    return [$owned, $unchecked];
+}
+
 /** The app's public page, e.g. https://github.com/apps/my-classroom; null if GitHub can't be reached. */
 function gh_app_url(): ?string
 {

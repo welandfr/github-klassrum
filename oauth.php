@@ -16,7 +16,7 @@ if (isset($_GET['error'])) {
 
 if (!isset($_GET['code'])) {
     $return = $_GET['return'] ?? 'index.php';
-    if (!preg_match('/^(index|join)\.php(\?code=[a-f0-9]{16})?$/', $return)) {
+    if (!preg_match('~^((index|join)\.php(\?code=[a-f0-9]{16})?|admin/assignment\.php)$~', $return)) {
         $return = 'index.php';
     }
     $_SESSION['oauth_state'] = bin2hex(random_bytes(16));

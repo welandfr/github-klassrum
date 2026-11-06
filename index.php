@@ -13,11 +13,11 @@ page_start('My assignment repos');
 echo '<p class="muted">Arcada-user: ' . h($sso) . ($me ? '<br>GitHub: <a href="https://github.com/' . h($me['github_login']) . '">'
     . h($me['github_login']) . '</a> · <a href="oauth.php">re-link</a>' : '') . '</p>'
     . '<p>How it works: open the join link from your teacher, then</p><ol>'
-    . '<li><a href="' . h(url('howto.php')) . '#github">Connect your GitHub account</a> (only the first time)</li>'
-    . '<li><a href="' . h(url('howto.php')) . '#team">Create or join a team</a>, or create your own repository for individual work</li>'
-    . '<li><a href="' . h(url('howto.php')) . '#ready">Wait for your teammates</a>: the repository is created when the team is full, '
+    . '<li>Connect your GitHub account (only the first time)</li>'
+    . '<li>Create or join a team, or create your own repository for individual work</li>'
+    . '<li>Wait for your teammates: the repository is created when the team is full, '
     . 'or when a member clicks <b>Our team is ready</b></li>'
-    . '<li><a href="' . h(url('howto.php')) . '#invite">Accept the invitation on GitHub</a></li>'
+    . '<li>Accept the invitation on GitHub</li>'
     . '</ol><p>Details in the <a href="' . h(url('howto.php')) . '">student guide</a>.</p>';
 
 if (!$me) {

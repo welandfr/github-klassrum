@@ -21,5 +21,10 @@ if (isset($_GET['as'])) {
     setcookie('dev_user', $user, ['path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
 }
 $_SERVER['REMOTE_USER'] = $user;
+// Fake SSO attributes like the server's mod_auth_mellon sets (see sso_attr()).
+// "dev" and users named teacher… are teachers, everyone else a student.
+$_SERVER['MELLON_displayName'] = ucfirst($user) . ' Dev';
+$_SERVER['MELLON_arcadaRole'] = $_SERVER['MELLON_arcadaRole_0'] =
+    $user === 'dev' || str_starts_with($user, 'teacher') ? 'teacher' : 'student';
 
 return false;  // let the built-in server run the requested script

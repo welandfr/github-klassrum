@@ -145,6 +145,11 @@ function migrate(PDO $pdo): array
     $pdo->exec('PRAGMA foreign_keys = OFF');
     try {
         migrate_files($pdo, $pending, $files);
+        // Assignments from before 004 have no owner: they go to the first main admin.
+        $admin = trim(explode(',', env('ADMINS') ?? '')[0]);
+        if ($admin !== '' && isset(applied_migrations($pdo)['004_assignment_owner'])) {
+            $pdo->prepare("UPDATE assignments SET owner = ? WHERE owner = ''")->execute([$admin]);
+        }
     } finally {
         $pdo->exec('PRAGMA foreign_keys = ON');
     }
@@ -193,7 +198,7 @@ function reset_database(PDO $pdo): array
 /** Banner for admin pages when the database schema is behind the migration files. */
 function pending_migrations_notice(): string
 {
-    $n = count(pending_migrations(db()));
+    $n = is_admin() ? count(pending_migrations(db())) : 0;
     return $n ? '<p class="err">' . $n . ' database migration(s) pending. '
         . '<a href="' . h(url('admin/settings.php')) . '">Run them on the settings page.</a></p>' : '';
 }

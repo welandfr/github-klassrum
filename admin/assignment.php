@@ -1,13 +1,26 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__) . '/lib/bootstrap.php';
-require_admin();
+require_teacher();
 if (!schema_installed()) {
     redirect('admin/settings.php');
 }
+$me = sso_user();
 
+/**
+ * The orgs this teacher may create assignments in: installed orgs their linked GitHub account owns.
+ * @return array{0:string[],1:string[]} [orgs, orgs that could not be checked]
+ */
+function teacher_orgs(): array
+{
+    static $result;
+    $user = linked_user(sso_user());
+    return $result ??= $user ? gh_owned_orgs($user['github_login']) : [[], []];
+}
+
+// Teachers only see their own assignments; anyone else's id is "not found".
 $id = (int) ($_GET['id'] ?? 0);
-$a = $id ? q('SELECT * FROM assignments WHERE id = ?', [$id])->fetch() : null;
+$a = $id ? q('SELECT * FROM assignments WHERE id = ? AND owner = ?', [$id, $me])->fetch() : null;
 if ($id && !$a) {
     http_response_code(404);
     exit('No such assignment.');
@@ -34,8 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!preg_match('/^[a-z0-9][a-z0-9-]{0,39}$/', $f['slug'])) {
                 throw new UserError('Slug must be lowercase letters, digits and dashes (max 40).');
             }
-            if (!$orgLocked && !in_array($f['org'], gh_installed_orgs(), true)) {
-                throw new UserError('Choose an organization the GitHub App is installed on.');
+            // Checked when the org is chosen; an assignment keeps its org even if ownership changes later.
+            if (!$orgLocked && (!$a || $f['org'] !== $a['org']) && !in_array($f['org'], teacher_orgs()[0], true)) {
+                throw new UserError('Choose an organization you own where the GitHub App is installed.');
             }
             // Accept "owner/repo" or a github.com URL.
             if (!preg_match('~^(?:https://github\.com/)?([\w.-]+)/([\w.-]+?)(?:\.git)?/?$~', $f['template'], $m)) {
@@ -55,8 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     q('UPDATE assignments SET org = ?, title = ?, slug = ?, template_owner = ?, template_repo = ?, max_team_size = ?, is_open = ?
                        WHERE id = ?', [...$params, $a['id']]);
                 } else {
-                    q('INSERT INTO assignments (org, title, slug, template_owner, template_repo, max_team_size, is_open, invite_code)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [...$params, bin2hex(random_bytes(8))]);
+                    q('INSERT INTO assignments (org, title, slug, template_owner, template_repo, max_team_size, is_open, invite_code, owner)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [...$params, bin2hex(random_bytes(8)), $me]);
                     $id = (int) db()->lastInsertId();
                 }
             } catch (PDOException $e) {
@@ -144,7 +158,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // A new assignment can start as a copy of an old one (?copy=id): its settings, not its teams.
-$copy = !$a && isset($_GET['copy']) ? q('SELECT * FROM assignments WHERE id = ?', [(int) $_GET['copy']])->fetch() : null;
+$copy = !$a && isset($_GET['copy'])
+    ? q('SELECT * FROM assignments WHERE id = ? AND owner = ?', [(int) $_GET['copy'], $me])->fetch() : null;
 $src = $a ?: $copy;
 $f = $_SESSION['form'] ?? ($src ? [
     'org' => $src['org'],
@@ -159,10 +174,11 @@ unset($_SESSION['form']);
 if ($orgLocked) {
     $orgField = '<p><code>' . h($f['org']) . '</code> <span class="muted">(fixed: teams already exist)</span></p>';
 } else {
+    $github = linked_user($me);
     try {
-        $orgs = gh_installed_orgs();
+        [$orgs, $unchecked] = teacher_orgs();
     } catch (RuntimeException $e) {
-        $orgs = [];
+        [$orgs, $unchecked] = [[], []];
         flash('err', $e->getMessage());
     }
     if ($f['org'] !== '' && !in_array($f['org'], $orgs, true)) {
@@ -176,7 +192,14 @@ if ($orgLocked) {
     $install = $appUrl
         ? '<a href="' . h($appUrl . '/installations/new') . '">' . h($appUrl . '/installations/new') . '</a>'
         : 'the app\'s page on GitHub (<i>Settings → Developer settings → GitHub Apps → Edit → Install App</i>)';
-    $orgField .= '</select><p class="muted">Orgs the GitHub App is installed on.</p>'
+    $orgField .= '</select>'
+        . ($github ? '<p class="muted">Orgs where the GitHub App is installed and your GitHub account <b>' . h($github['github_login'])
+            . '</b> is an owner.</p>'
+            : '<p class="err">Connect your GitHub account to see the orgs you own: <a href="'
+            . h(url('oauth.php?return=' . urlencode('admin/assignment.php'))) . '">Connect GitHub account</a> '
+            . '(unsaved input in this form is lost).</p>')
+        . ($unchecked ? '<p class="err">Could not check your membership in ' . h(implode(', ', $unchecked)) . '. The GitHub App needs the '
+            . 'permission <i>Organization → Members: Read-only</i>, accepted by each org (see the README).</p>' : '')
         // Expanded while no org is available yet.
         . '<details' . ($orgs ? '' : ' open') . '><summary>Adding a new group\'s org</summary><ol>'
         . '<li>Open ' . $install . '.</li>'

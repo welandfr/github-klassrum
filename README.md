@@ -23,7 +23,7 @@ One app serves all group orgs. Create it under one of the orgs (or your user acc
 - **Callback URL**: `https://<host>/~<you>/classroom/oauth.php` (also shown on the settings page)
 - **Webhook**: uncheck *Active*
 - **Repository permissions**: *Administration*: Read and write · *Contents*: Read-only · *Metadata*: Read-only
-- **Organization permissions** (optional): *Administration*: Read-only. This lets the app check each org's base permission.
+- **Organization permissions**: *Members*: Read-only, so teachers can only use orgs they own. Optionally *Administration*: Read-only, which lets the app check each org's base permission. When you add a permission to an existing app, each org where it is installed must accept it (org **Settings → GitHub Apps**, or the email GitHub sends to the org owners).
 - **Where can this app be installed**: Any account. The app only acts on orgs where it is installed.
 
 After creating it, note the **Client ID**, generate a **client secret**, and generate a **private key** (.pem). Then use **Install App** to install it on each group's org with *All repositories*. For a new group, install it on that org and it appears in the assignment form.
@@ -72,6 +72,12 @@ A cron job on the server can pull every pushed commit and apply its migrations (
 ```
 
 Both commands are silent when there is nothing to do, so cron only mails output when a migration was applied or something failed. The checkout must have no local changes, and its remote must be the HTTPS URL (`git remote set-url origin https://github.com/welandfr/github-klassrum.git`) so pulling needs no key. Use the same PHP version as the web server (`php -v`). The About panel shows the deployed commit.
+
+## Teachers and main admins
+
+Everyone whose SSO login has the role `teacher` (`MELLON_arcadaRole_*`) gets the **Teacher** pages. A teacher only sees their own assignments, and the students in them. They can create assignments in the orgs where the app is installed and their linked GitHub account is an owner, so they connect their GitHub account first. A teacher can unlink a student's GitHub account unless the student is also in another teacher's assignment.
+
+The users in `ADMINS` are main admins: teachers who also have the settings page, and a list of linked accounts that are in no assignment. Assignments from before teachers had their own space belong to the first user in `ADMINS`.
 
 ## Database migrations
 

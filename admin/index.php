@@ -1,16 +1,32 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__) . '/lib/bootstrap.php';
-require_admin();
+require_teacher();
 if (!schema_installed()) {
-    redirect('admin/settings.php');
+    redirect(is_admin() ? 'admin/settings.php' : '');
 }
+$me = sso_user();
+
+// Linked GitHub accounts with their team count in this teacher's assignments ("mine") and in other teachers' ("others").
+// Team memberships refer to the SSO user, so unlinking doesn't remove anyone from a team.
+$userSql = 'SELECT u.*,
+        (SELECT COUNT(*) FROM team_members m JOIN assignments a ON a.id = m.assignment_id WHERE m.sso_user = u.sso_user AND a.owner = :me) AS mine,
+        (SELECT COUNT(*) FROM team_members m JOIN assignments a ON a.id = m.assignment_id WHERE m.sso_user = u.sso_user AND a.owner <> :me) AS others
+    FROM users u';
+// A teacher may unlink their own students, unless another teacher's assignment uses the link too.
+// Main admins may also unlink accounts that are in no assignment.
+$mayUnlink = fn(array $u): bool => !$u['others'] && ($u['mine'] || is_admin());
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
     if (($_POST['action'] ?? '') === 'unlink') {
-        q('DELETE FROM users WHERE sso_user = ?', [(string) $_POST['sso_user']]);
-        flash('ok', 'Unlinked the GitHub account of ' . $_POST['sso_user'] . '.');
+        $u = q("$userSql WHERE u.sso_user = :sso", ['me' => $me, 'sso' => (string) $_POST['sso_user']])->fetch();
+        if ($u && $mayUnlink($u)) {
+            q('DELETE FROM users WHERE sso_user = ?', [$u['sso_user']]);
+            flash('ok', 'Unlinked the GitHub account of ' . $u['sso_user'] . '.');
+        } else {
+            flash('err', 'You can\'t unlink that account.');
+        }
     }
     redirect('admin/');
 }
@@ -18,12 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $rows = q('SELECT a.*, COUNT(DISTINCT t.id) AS teams, COUNT(m.sso_user) AS students,
                   SUM(m.invite_status = \'failed\') AS failed
            FROM assignments a LEFT JOIN teams t ON t.assignment_id = a.id LEFT JOIN team_members m ON m.team_id = t.id
-           GROUP BY a.id ORDER BY a.org, a.created_at DESC')->fetchAll();
+           WHERE a.owner = ? GROUP BY a.id ORDER BY a.org, a.created_at DESC', [$me])->fetchAll();
 
-page_start('Assignments');
+page_start('My assignments');
 echo pending_migrations_notice();
-echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a> · <a href="' . h(url('admin/settings.php'))
-    . '">Settings</a> · <a href="' . h(url()) . '">Student view</a></p>';
+echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a>'
+    . (is_admin() ? ' · <a href="' . h(url('admin/settings.php')) . '">Settings</a>' : '')
+    . ' · <a href="' . h(url()) . '">Student view</a></p>';
 if (!$rows) {
     echo '<p class="muted">No assignments yet.</p>';
 } else {
@@ -48,24 +65,32 @@ if (!$rows) {
     echo '</table>';
 }
 
-// Team memberships refer to the SSO user, so unlinking doesn't remove anyone from a team.
-$users = q('SELECT u.*, (SELECT COUNT(*) FROM team_members m WHERE m.sso_user = u.sso_user) AS teams
-            FROM users u ORDER BY u.sso_user')->fetchAll();
-echo '<h2>Users (' . count($users) . ')</h2>';
-if (!$users) {
-    echo '<p class="muted">No student has linked a GitHub account yet.</p>';
-} else {
-    echo '<table><tr><th>SSO user</th><th>GitHub</th><th>Linked</th><th>Teams</th><th></th></tr>';
+$users = q("$userSql ORDER BY u.sso_user", ['me' => $me])->fetchAll();
+$userTable = function (array $users) use ($mayUnlink): string {
+    $html = '<table><tr><th>SSO user</th><th>GitHub</th><th>Linked</th><th>Teams</th><th></th></tr>';
     foreach ($users as $u) {
-        echo '<tr><td>' . h($u['sso_user']) . '</td>'
+        $html .= '<tr><td>' . h($u['sso_user']) . '</td>'
             . '<td><a href="https://github.com/' . h($u['github_login']) . '">' . h($u['github_login']) . '</a></td>'
-            . '<td>' . h($u['linked_at']) . ' UTC</td><td>' . (int) $u['teams'] . '</td><td>'
-            . confirm_button('unlink', ['sso_user' => $u['sso_user']], 'unlink',
-                "Unlink GitHub account {$u['github_login']} from {$u['sso_user']}? They must connect a GitHub account again "
-                . 'before creating or joining a team.' . ($u['teams'] ? ' Their team memberships stay, and invitations already sent '
-                . 'stay with this GitHub account; remove them from the team on the assignment page if needed.' : ''))
+            . '<td>' . h($u['linked_at']) . ' UTC</td><td>' . (int) $u['mine'] . '</td><td>'
+            . ($mayUnlink($u)
+                ? confirm_button('unlink', ['sso_user' => $u['sso_user']], 'unlink',
+                    "Unlink GitHub account {$u['github_login']} from {$u['sso_user']}? They must connect a GitHub account again "
+                    . 'before creating or joining a team.' . ($u['mine'] ? ' Their team memberships stay, and invitations already sent '
+                    . 'stay with this GitHub account; remove them from the team on the assignment page if needed.' : ''))
+                : '<button class="small danger" disabled>unlink</button><br><small class="muted">Also in another teacher\'s assignment</small>')
             . '</td></tr>';
     }
-    echo '</table>';
+    return $html . '</table>';
+};
+
+$students = array_filter($users, fn($u) => $u['mine'] > 0);
+echo '<h2>Students (' . count($students) . ')</h2>';
+echo $students ? $userTable($students) : '<p class="muted">No students in your assignments yet.</p>';
+
+if (is_admin()) {
+    $unassigned = array_filter($users, fn($u) => !$u['mine'] && !$u['others']);
+    echo '<h2>Not in any assignment (' . count($unassigned) . ')</h2>'
+        . '<p class="muted">Linked GitHub accounts of students who haven\'t joined a team yet, and of teachers. Only main admins see this list.</p>'
+        . ($unassigned ? $userTable($unassigned) : '<p class="muted">None.</p>');
 }
 page_end();

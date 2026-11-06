@@ -7,6 +7,10 @@ if (is_admin() && !app_ready()) {
     redirect('admin/settings.php');
 }
 require_configured();
+// Teachers start on their own page; "Student view" there links back here with ?view=student.
+if (is_teacher() && ($_GET['view'] ?? '') !== 'student') {
+    redirect('admin/');
+}
 $me = linked_user($sso);
 
 page_start('My assignment repos');

@@ -40,7 +40,7 @@ page_start('My assignments');
 echo pending_migrations_notice();
 echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a>'
     . (is_admin() ? ' · <a href="' . h(url('admin/settings.php')) . '">Settings</a>' : '')
-    . ' · <a href="' . h(url()) . '">Student view</a> · <a href="' . h(url('admin/guide.php')) . '">Teacher guide</a></p>';
+    . ' · <a href="' . h(url('index.php?view=student')) . '">Student view</a> · <a href="' . h(url('admin/guide.php')) . '">Teacher guide</a></p>';
 if (!$rows) {
     echo '<p class="muted">No assignments yet.</p>';
 } else {

@@ -12,7 +12,12 @@ $me = linked_user($sso);
 page_start('My assignment repos');
 echo '<p class="muted">Arcada-user: ' . h($sso) . ($me ? '<br>GitHub: <a href="https://github.com/' . h($me['github_login']) . '">'
     . h($me['github_login']) . '</a> · <a href="oauth.php">re-link</a>' : '') . '</p>'
-    . '<p>New to Klassrum? Read the <a href="' . h(url('howto.php')) . '">student guide</a>.</p>';
+    . '<p>How it works:</p><ol>'
+    . '<li>Connect your GitHub account (only the first time).</li>'
+    . '<li>Open the join link from your teacher, then create a team or join one. For individual work, create your repository.</li>'
+    . '<li>When your team is full, or a member clicks <b>Our team is ready</b>, the repository is created.</li>'
+    . '<li>Accept the invitation on GitHub. Until then, the repository shows “404”.</li>'
+    . '</ol><p>Details in the <a href="' . h(url('howto.php')) . '">student guide</a>.</p>';
 
 if (!$me) {
     echo '<p>Connect your GitHub account to get started.</p>'

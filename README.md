@@ -42,7 +42,7 @@ For each group org:
 
 Open `https://<host>/~<you>/classroom/admin/settings.php`:
 
-1. Check that the database shows its path without errors, and click **Run pending migrations** to create the tables.
+1. Check that the database shows its path without errors. The first request creates the tables; if a migration shows as pending, **Run pending migrations** shows why.
 2. Enter the Client ID, client secret and private key, then click **Save and test connection**. It lists the orgs the app is installed on.
 
 ## 5. Assignments
@@ -65,13 +65,13 @@ Share the join link it shows. The assignment page lists teams, repos and members
 
 ## Automatic deploys
 
-A cron job on the server can pull every pushed commit and apply its migrations (`crontab -e`, with the path to your checkout):
+A cron job on the server can pull every pushed commit (`crontab -e`, with the path to your checkout):
 
 ```
-* * * * * cd ~/public_html/classroom && git pull -q --ff-only && php bin/migrate.php
+* * * * * cd ~/public_html/classroom && git pull -q --ff-only
 ```
 
-Both commands are silent when there is nothing to do, so cron only mails output when a migration was applied or something failed. The checkout must have no local changes, and its remote must be the HTTPS URL (`git remote set-url origin https://github.com/welandfr/github-klassrum.git`) so pulling needs no key. Use the same PHP version as the web server (`php -v`). The About panel shows the deployed commit.
+It is silent when there is nothing to do, so cron only mails output when something failed. The checkout must have no local changes, and its remote must be the HTTPS URL (`git remote set-url origin https://github.com/welandfr/github-klassrum.git`) so pulling needs no key. The first request after a deploy applies its migrations. The About panel shows the deployed commit.
 
 ## Teachers and main admins
 
@@ -83,8 +83,8 @@ The users in `ADMINS` are main admins: teachers who also have the settings page,
 
 Schema changes live in `migrations/` as `NNN_description.sql` (e.g. `002_add_due_date.sql`). Each file is applied once, in name order, and recorded in the `schema_migrations` table. Separate statements with a `;` at the end of a line. Never edit a migration that has been applied in production; add a new one instead.
 
-- **Production**: `php bin/migrate.php` applies pending migrations and prints what it applied; the deploy cron job below runs it. Without it, admin pages show a "migrations pending" banner, and **Run pending migrations** on the settings page does the same. Each migration runs in one transaction, so a failing one changes nothing.
-- **Development** (PHP's built-in server with `DB_IS_DEV=1` in `.env`): pending migrations are applied on every page load. **Reset database** on the settings page drops all tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration. Without `DB_IS_DEV=1`, e.g. when developing against the production database, the dev server behaves like production here: no reset button, and migrations only run from the button.
+- **Production**: the first request after a deploy applies pending migrations. A failing one is logged to the web server's error log and changes nothing, since each migration runs in one transaction; admin pages then show a "migrations pending" banner, and **Run pending migrations** on the settings page shows the error. `php bin/migrate.php` does the same from the command line, if the CLI PHP has `pdo_sqlite`.
+- **Development** (PHP's built-in server with `DB_IS_DEV=1` in `.env`): pending migrations are applied on every page load. **Reset database** on the settings page drops all tables, including the GitHub settings, and re-runs every migration. Use it after editing an already-applied migration. Without `DB_IS_DEV=1`, e.g. when developing against the production database, the dev server doesn't apply migrations by itself and has no reset button; migrations only run from the button.
 
 ## Local development
 

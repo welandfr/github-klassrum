@@ -35,13 +35,17 @@ function db(): PDO
     static $pdo;
     if ($pdo === null) {
         $pdo = db_connect(db_path());
-        if (is_dev_db()) {
-            // New migration files take effect on reload. A failure is only flashed, so the
-            // settings page (with its reset button) stays usable.
+        // A deploy's new migrations are applied by the first request after it. Not on the dev server
+        // without DB_IS_DEV=1: it may be pointed at the production database with unreleased migrations.
+        if (!IS_DEV_SERVER || is_dev_db()) {
+            // A failure is logged (and flashed in dev), and admin pages show the migrations as pending.
             try {
                 migrate($pdo);
             } catch (RuntimeException $e) {
-                flash('err', $e->getMessage());
+                error_log('classroom: ' . $e->getMessage());
+                if (IS_DEV_SERVER) {
+                    flash('err', $e->getMessage());
+                }
             }
         }
     }
@@ -139,12 +143,15 @@ function schema_installed(): bool
 function migrate(PDO $pdo): array
 {
     $pending = pending_migrations($pdo);
+    if (!$pending) {
+        return [];
+    }
     $files = migration_files();
     // Table rebuilds (SQLite's way to change a column) must not cascade deletes, so foreign keys
     // are off while migrating and checked before each commit. The pragma is ignored inside a transaction.
     $pdo->exec('PRAGMA foreign_keys = OFF');
     try {
-        migrate_files($pdo, $pending, $files);
+        $applied = migrate_files($pdo, $pending, $files);
         // Assignments from before 004 have no owner: they go to the first main admin.
         $admin = trim(explode(',', env('ADMINS') ?? '')[0]);
         if ($admin !== '' && isset(applied_migrations($pdo)['004_assignment_owner'])) {
@@ -153,13 +160,20 @@ function migrate(PDO $pdo): array
     } finally {
         $pdo->exec('PRAGMA foreign_keys = ON');
     }
-    return $pending;
+    return $applied;
 }
 
-function migrate_files(PDO $pdo, array $pending, array $files): void
+/** @return string[] the names applied; one that another request applied meanwhile is skipped */
+function migrate_files(PDO $pdo, array $pending, array $files): array
 {
+    $applied = [];
     foreach ($pending as $name) {
         $pdo->exec('BEGIN IMMEDIATE');
+        // Another request may have applied it while this one waited for the lock.
+        if (isset(applied_migrations($pdo)[$name])) {
+            $pdo->exec('COMMIT');
+            continue;
+        }
         try {
             $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (
                 name TEXT PRIMARY KEY,
@@ -176,11 +190,13 @@ function migrate_files(PDO $pdo, array $pending, array $files): void
             }
             $pdo->prepare('INSERT INTO schema_migrations (name) VALUES (?)')->execute([$name]);
             $pdo->exec('COMMIT');
+            $applied[] = $name;
         } catch (PDOException $e) {
             $pdo->exec('ROLLBACK');
             throw new RuntimeException("Migration $name failed: " . $e->getMessage(), 0, $e);
         }
     }
+    return $applied;
 }
 
 /** Drops every table, then re-runs all migrations. For the dev server only. */

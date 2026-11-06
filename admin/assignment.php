@@ -201,21 +201,21 @@ if ($orgLocked) {
         . ($unchecked ? '<p class="err">Could not check your membership in ' . h(implode(', ', $unchecked)) . '. The GitHub App needs the '
             . 'permission <i>Organization → Members: Read-only</i>, accepted by each org (see the README).</p>' : '')
         // Expanded while no org is available yet.
-        . '<details' . ($orgs ? '' : ' open') . '><summary>Adding a new group\'s org</summary><ol>'
+        . '<details' . ($orgs ? '' : ' open') . '><summary>Adding a new group\'s org</summary>'
+        . '<p>Step by step in the <a href="' . h(url('admin/guide.php#org')) . '">teacher guide</a>. In short:</p><ol>'
         . '<li>Open ' . $install . '.</li>'
         . '<li>Choose the group\'s org. You must be an owner of it; otherwise GitHub only sends an install request to the owners. '
         . 'If only the org that owns the app is offered, the app is private: in the app\'s settings, '
         . '<i>Advanced → Make public</i>.</li>'
         . '<li>Select <i>All repositories</i> and click <i>Install</i>.</li>'
-        . '<li>In the org\'s <i>Settings → Member privileges</i>, set <i>Base permissions</i> to No permission and disable repository creation for members '
-        . '(see the <a href="' . h(url('admin/settings.php')) . '">settings page</a> instructions).</li>'
+        . '<li>Adjust the org\'s <i>Settings → Member privileges</i> as in the <a href="' . h(url('admin/guide.php#settings')) . '">teacher guide</a>.</li>'
         . '<li>Reload this page (unsaved input in this form is lost); the org then appears in the list.</li>'
         . '</ol></details>';
 }
 
 page_start($a ? $a['title'] : 'New assignment');
 echo pending_migrations_notice();
-echo '<p><a href="' . h(url('admin/')) . '">← Assignments</a></p>';
+echo '<p><a href="' . h(url('admin/')) . '">← My assignments</a></p>';
 if ($a) {
     echo '<p>Join link for students: <code>' . h(url('join.php?code=' . $a['invite_code'])) . '</code></p>'
         . '<p><a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">Copy to a new assignment</a> '

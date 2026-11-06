@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 page_start('Settings');
-echo '<p><a href="' . h(url('admin/')) . '">← Assignments</a></p>';
+echo '<p><a href="' . h(url('admin/')) . '">← My assignments</a></p>';
 
 $path = db_path();
 $real = realpath($path) ?: $path;

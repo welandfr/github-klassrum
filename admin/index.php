@@ -40,7 +40,7 @@ page_start('My assignments');
 echo pending_migrations_notice();
 echo '<p><a href="' . h(url('admin/assignment.php')) . '">+ New assignment</a>'
     . (is_admin() ? ' · <a href="' . h(url('admin/settings.php')) . '">Settings</a>' : '')
-    . ' · <a href="' . h(url()) . '">Student view</a></p>';
+    . ' · <a href="' . h(url()) . '">Student view</a> · <a href="' . h(url('admin/guide.php')) . '">Teacher guide</a></p>';
 if (!$rows) {
     echo '<p class="muted">No assignments yet.</p>';
 } else {
@@ -58,7 +58,7 @@ if (!$rows) {
             . '<td>' . (int) $a['max_team_size'] . '</td>'
             . '<td>' . (int) $a['teams'] . '</td>'
             . '<td>' . (int) $a['students']
-            . ((int) $a['failed'] ? '<br><small class="err">' . (int) $a['failed'] . ' failed invites</small>' : '') . '</td>'
+            . ((int) $a['failed'] ? '<br><small class="err">' . (int) $a['failed'] . ' failed invite' . ($a['failed'] > 1 ? 's' : '') . '</small>' : '') . '</td>'
             . '<td class="actions-cell"><button type="button" class="small secondary" data-copy="' . h(url('join.php?code=' . $a['invite_code'])) . '">'
             . 'Copy join link</button> <a href="' . h(url('admin/assignment.php?copy=' . $a['id'])) . '">Duplicate</a></td></tr>';
     }

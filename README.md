@@ -98,7 +98,7 @@ Create `config/.env` (gitignored) with `ADMINS=dev`. The dev database is then `c
 
 ## Notes
 
-- `howto.php` is a step-by-step guide for students, linked from the start page. Its screenshots in `howto/` were taken from the app with example data; retake them if the pages change a lot.
+- `howto.php` is a step-by-step guide for students, linked from the start page, and `admin/guide.php` one for teachers (org setup, app installation, assignments). Their screenshots in `howto/` were taken from the app with example data, and from GitHub; retake them if the pages change a lot.
 
 - Students must accept the GitHub invitation (`<repo-url>/invitations`) before the repo is visible to them.
 - When creating a team (or later, until its repo exists), students can mark it as **looking for teammates** (highlighted and listed first in the join list) and **reserve slots** for classmates' Arcada usernames: only that student can take the slot. The repo is only auto-created once reserved students have joined. Admins see and can remove reservations on the assignment page.

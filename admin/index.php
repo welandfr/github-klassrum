@@ -67,9 +67,9 @@ if (!$rows) {
 
 $users = q("$userSql ORDER BY u.sso_user", ['me' => $me])->fetchAll();
 $userTable = function (array $users) use ($mayUnlink): string {
-    $html = '<table><tr><th>SSO user</th><th>GitHub</th><th>Linked</th><th>Teams</th><th></th></tr>';
+    $html = '<table><tr><th>User</th><th>GitHub</th><th>Linked</th><th>Teams</th><th></th></tr>';
     foreach ($users as $u) {
-        $html .= '<tr><td>' . h($u['sso_user']) . '</td>'
+        $html .= '<tr><td>' . h(person($u['sso_user'])) . '</td>'
             . '<td><a href="https://github.com/' . h($u['github_login']) . '">' . h($u['github_login']) . '</a></td>'
             . '<td>' . h($u['linked_at']) . ' UTC</td><td>' . (int) $u['mine'] . '</td><td>'
             . ($mayUnlink($u)

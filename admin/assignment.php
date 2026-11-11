@@ -277,13 +277,13 @@ if ($a) {
                 ? '<label><input type="checkbox" name="delete_repo" value="1"> Delete the repo ' . h($t['repo_name'])
                     . ' on GitHub as well, and the team</label><p class="muted">This can\'t be undone.</p>'
                 : '';
-            $members = array_map(fn($m) => h($m['sso_user']) . ' (' . h($m['github_login'] ?? '?') . ')'
+            $members = array_map(fn($m) => h(person($m['sso_user'], $m['github_login'] ?? '?'))
                 . ($m['invite_status'] === 'failed' ? ' <span class="err" title="' . h($m['invite_error']) . '">invite failed</span>' : '')
                 . ' ' . confirm_button('remove_member', ['team_id' => $t['id'], 'sso_user' => $m['sso_user']], 'remove',
                     "Remove {$m['sso_user']} from “{$t['name']}”? Their access to the repo on GitHub is removed too.", $deleteRepo),
                 $tm);
             foreach (team_reservations((int) $t['id']) as $r) {
-                $members[] = '<span class="muted">' . h($r) . ' (reserved, not joined)</span> <form method="post" style="display:inline">'
+                $members[] = '<span class="muted">' . h(person($r)) . ' (reserved, not joined)</span> <form method="post" style="display:inline">'
                     . csrf_field() . '<input type="hidden" name="action" value="unreserve"><input type="hidden" name="team_id" value="' . $t['id'] . '">'
                     . '<input type="hidden" name="sso_user" value="' . h($r) . '"><button class="small secondary">unreserve</button></form>';
             }

@@ -287,6 +287,9 @@ function page_start(string $title): void
     $user = $_SERVER['REMOTE_USER'] ?? $_SERVER['REDIRECT_REMOTE_USER'] ?? '';
     $name = sso_attr('displayName');
     $role = sso_attr('arcadaRole');
+    if ($user !== '') {
+        remember_name($user);
+    }
     echo '<span class="muted">' . ($user !== '' ? ($name !== '' ? h($name) . ' (' . h($user) . ')' : h($user))
             . ($role !== '' ? ' · ' . h($role) : '') . ' · ' : '')
         . ($user !== '' && is_teacher() ? '<a href="' . h(url('admin/')) . '">Teacher</a> · ' : '')

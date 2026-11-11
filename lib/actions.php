@@ -20,6 +20,40 @@ function my_team(int $assignmentId, string $sso): ?array
               WHERE m.assignment_id = ? AND m.sso_user = ?', [$assignmentId, $sso])->fetch() ?: null;
 }
 
+/**
+ * Saves the user's real name from the SSO login, once per session or when it changes, so other
+ * users' lists can show it. Errors are ignored: e.g. before the migration that adds the table.
+ */
+function remember_name(string $sso): void
+{
+    $name = sso_attr('displayName');
+    if ($name === '' || ($_SESSION['saved_name'] ?? null) === $name) {
+        return;
+    }
+    try {
+        q('INSERT INTO people (sso_user, display_name) VALUES (?, ?)
+           ON CONFLICT (sso_user) DO UPDATE SET display_name = excluded.display_name, updated_at = CURRENT_TIMESTAMP',
+            [$sso, $name]);
+        $_SESSION['saved_name'] = $name;
+    } catch (PDOException) {
+    }
+}
+
+/** "anna – Anna Andersson (anna-gh)": the username, the real name if known, and the GitHub login if given. Plain text. */
+function person(string $sso, ?string $githubLogin = null): string
+{
+    static $names;
+    if ($names === null) {
+        try {
+            $names = array_change_key_case(q('SELECT sso_user, display_name FROM people')->fetchAll(PDO::FETCH_KEY_PAIR));
+        } catch (PDOException) {
+            $names = [];
+        }
+    }
+    $name = $names[strtolower($sso)] ?? null;
+    return $sso . ($name !== null ? " – $name" : '') . ($githubLogin !== null ? " ($githubLogin)" : '');
+}
+
 function team_members(int $teamId): array
 {
     return q('SELECT m.*, u.github_login FROM team_members m LEFT JOIN users u USING (sso_user)
@@ -410,7 +444,7 @@ function github_differences(array $a): array
             if ($m['invite_status'] !== 'invited' || $ghId === false || in_array($ghId, $collaborators, true)) {
                 continue;
             }
-            $who = "{$m['sso_user']} ({$m['github_login']})";
+            $who = person($m['sso_user'], $m['github_login']);
             if (!isset($expired[$ghId])) {
                 $diffs[] = ['type' => 'member_gone', 'team_id' => $id, 'sso_user' => $m['sso_user'],
                     'text' => "$who no longer has access to {$repo['name']}: remove them from “{$t['name']}”."];

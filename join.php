@@ -102,10 +102,10 @@ if ($team && $team['repo_url'] === null) {
         . ($team['looking'] ? ' <span class="badge">Looking for teammates</span>' : '') . '. It has no repository yet.</p>'
         . '<table><tr><th>Member</th><th>GitHub</th><th></th></tr>';
     foreach ($members as $m) {
-        echo '<tr><td>' . h($m['sso_user']) . '</td><td>' . h($m['github_login']) . '</td><td></td></tr>';
+        echo '<tr><td>' . h(person($m['sso_user'])) . '</td><td>' . h($m['github_login']) . '</td><td></td></tr>';
     }
     foreach ($reserved as $r) {
-        echo '<tr><td>' . h($r) . '</td><td class="muted">slot reserved, not joined yet</td><td class="actions-cell">'
+        echo '<tr><td>' . h(person($r)) . '</td><td class="muted">slot reserved, not joined yet</td><td class="actions-cell">'
             . '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="unreserve">'
             . '<input type="hidden" name="sso_user" value="' . h($r) . '"><button class="small secondary">Remove reservation</button></form></td></tr>';
     }
@@ -156,7 +156,7 @@ if ($team) {
         if ($m['sso_user'] === $sso) {
             $mine = $m;
         }
-        echo '<tr><td>' . h($m['sso_user']) . '</td><td>' . h($m['github_login']) . '</td><td>'
+        echo '<tr><td>' . h(person($m['sso_user'])) . '</td><td>' . h($m['github_login']) . '</td><td>'
             . match ($m['invite_status']) { 'invited' => 'invited', 'failed' => '<span class="err">failed</span>', default => 'pending' } . '</td></tr>';
     }
     echo '</table>';
@@ -210,8 +210,8 @@ if ($size > 1) {
     $teams = q('SELECT t.id, t.name, t.repo_url, t.looking,
                        (SELECT COUNT(*) FROM team_members m WHERE m.team_id = t.id) AS n,
                        (SELECT group_concat(r.sso_user, \', \') FROM team_reservations r WHERE r.team_id = t.id) AS reserved,
-                       (SELECT group_concat(member, \', \') FROM (
-                           SELECT m.sso_user || COALESCE(\' (\' || u.github_login || \')\', \'\') AS member FROM team_members m
+                       (SELECT group_concat(member, char(30)) FROM (
+                           SELECT m.sso_user || char(31) || COALESCE(u.github_login, \'\') AS member FROM team_members m
                            LEFT JOIN users u ON u.sso_user = m.sso_user WHERE m.team_id = t.id ORDER BY m.joined_at)) AS members
                 FROM teams t WHERE t.assignment_id = ? AND (t.repo_url IS NOT NULL OR t.creating_since IS NULL)
                 ORDER BY t.looking DESC, t.name', [$a['id']])->fetchAll();
@@ -229,9 +229,12 @@ if ($size > 1) {
             echo '<tr><td>' . h($t['name'])
                 . ($t['looking'] && $t['repo_url'] === null && !$full && !$taken ? ' <span class="badge">Looking for teammates</span>' : '')
                 . ($t['repo_url'] === null ? '' : ' <span class="muted">(repository created)</span>')
-                . '</td><td>' . h($t['members']) . " ({$t['n']}/$size)"
+                . '</td><td>' . h(implode(', ', array_map(function (string $m): string {
+                    [$sso, $github] = explode("\x1f", $m);
+                    return person($sso, $github !== '' ? $github : null);
+                }, array_filter(explode("\x1e", (string) $t['members']))))) . " ({$t['n']}/$size)"
                 . ($reservedFor ? '<br><small class="' . ($forMe ? 'ok' : 'muted') . '">Reserved for '
-                    . h(implode(', ', $reservedFor)) . ($forMe ? ' (you)' : '') . '</small>' : '')
+                    . h(implode(', ', array_map('person', $reservedFor))) . ($forMe ? ' (you)' : '') . '</small>' : '')
                 . '</td><td>'
                 . ($full ? '<button disabled>Full</button>'
                     : ($taken ? '<button disabled title="The free slots are reserved for other students">Reserved</button>'

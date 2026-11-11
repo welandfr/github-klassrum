@@ -3,3 +3,8 @@
 <If "%{REQUEST_URI} =~ m#/\.git(/|$)#">
     Require all denied
 </If>
+
+# Temporary data files, e.g. a list of students (see .gitignore).
+<If "%{REQUEST_URI} =~ m#\.tmp$#">
+    Require all denied
+</If>

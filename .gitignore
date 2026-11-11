@@ -3,3 +3,5 @@ config/settings.php
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+# Personal data, e.g. a temporary list of students: never commit
+*.tmp
